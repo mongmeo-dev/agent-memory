@@ -10,7 +10,7 @@ import {
   indexProjectMemories,
   OpenAICompatibleEmbeddingProvider,
 } from "./embeddings.js";
-import { resolveGitContext } from "./git-context.js";
+import { resolveGitContexts } from "./git-context.js";
 import { buildVerifiedHandoff } from "./handoff.js";
 import { CLIENT_NAMES, type ClientName, type SetupScope, setupClients } from "./setup.js";
 import { installDaemonService } from "./setup-daemon.js";
@@ -97,10 +97,12 @@ async function run(): Promise<void> {
   }
 
   const { positional, flags } = parseArguments(rawArguments);
-  const context = resolveGitContext(flags.get("cwd"));
+  const contexts = resolveGitContexts(flags.get("cwd"));
+  const context = contexts[0];
+  if (context === undefined) throw new Error("Git context를 확인할 수 없습니다.");
 
   if (command === "context") {
-    output(context);
+    output({ ...context, repositories: contexts });
     return;
   }
 
@@ -253,34 +255,46 @@ async function run(): Promise<void> {
       if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
         throw new Error("--limit은 1 이상의 정수여야 합니다.");
       }
+      const query = required(positional, "검색어가 필요합니다.");
+      const resultLimit = limit ?? 20;
       output(
-        store.searchMemories({
-          query: required(positional, "검색어가 필요합니다."),
-          projectId: context.projectId,
-          currentBranch: context.branch,
-          repositoryRoot: context.repositoryRoot,
-          currentHeadCommit: context.headCommit,
-          ...(flags.has("branch") ? { requestedBranch: flags.get("branch") as string } : {}),
-          ...(limit === undefined ? {} : { limit }),
-        }),
+        contexts
+          .flatMap((repository) =>
+            store.searchMemories({
+              query,
+              projectId: repository.projectId,
+              currentBranch: repository.branch,
+              repositoryRoot: repository.repositoryRoot,
+              currentHeadCommit: repository.headCommit,
+              ...(flags.has("branch") ? { requestedBranch: flags.get("branch") as string } : {}),
+              limit: resultLimit,
+            }),
+          )
+          .sort((left, right) => right.rank - left.rank)
+          .slice(0, resultLimit),
       );
       return;
     }
 
     if (command === "revalidate") {
       output(
-        store.revalidateProject(
-          context.projectId,
-          context.repositoryRoot,
-          context.branch,
-          context.headCommit,
-        ),
+        contexts.map((repository) => ({
+          repositoryRoot: repository.repositoryRoot,
+          ...store.revalidateProject(
+            repository.projectId,
+            repository.repositoryRoot,
+            repository.branch,
+            repository.headCommit,
+          ),
+        })),
       );
       return;
     }
 
     if (command === "handoff") {
-      process.stdout.write(`${buildVerifiedHandoff(store, context)}\n`);
+      process.stdout.write(
+        `${contexts.map((repository) => buildVerifiedHandoff(store, repository)).join("\n\n")}\n`,
+      );
       return;
     }
 

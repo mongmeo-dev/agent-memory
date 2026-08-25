@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { type Dirent, existsSync, readdirSync, realpathSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import type { GitContext } from "./types.js";
 
@@ -34,6 +34,54 @@ function normalizeRemote(remote: string): string {
 
 function hashIdentity(parts: string[]): string {
   return createHash("sha256").update(parts.join("\n")).digest("hex");
+}
+
+const NESTED_REPOSITORY_SCAN_DEPTH = 4;
+const SKIPPED_DIRECTORIES = new Set([
+  ".git",
+  ".cache",
+  ".next",
+  ".turbo",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+  "target",
+  "vendor",
+]);
+
+function nestedRepositoryRoots(root: string): string[] {
+  const repositories: string[] = [];
+  const visited = new Set<string>([realpathSync(root)]);
+
+  function visit(directory: string, depth: number): void {
+    if (depth >= NESTED_REPOSITORY_SCAN_DEPTH) return;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || SKIPPED_DIRECTORIES.has(entry.name)) continue;
+      const child = join(directory, entry.name);
+      let canonical: string;
+      try {
+        canonical = realpathSync(child);
+      } catch {
+        continue;
+      }
+      if (visited.has(canonical)) continue;
+      visited.add(canonical);
+      if (existsSync(join(canonical, ".git"))) {
+        repositories.push(canonical);
+      }
+      visit(canonical, depth + 1);
+    }
+  }
+
+  visit(root, 0);
+  return repositories.sort();
 }
 
 export function resolveGitContext(cwd = process.cwd()): GitContext {
@@ -72,6 +120,20 @@ export function resolveGitContext(cwd = process.cwd()): GitContext {
     branch: git(repositoryRoot, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
     headCommit: git(repositoryRoot, ["rev-parse", "HEAD"]),
   };
+}
+
+/**
+ * Resolves the current repository and initialized nested repositories.
+ * Nested repositories are separate memory scopes, but callers can use this
+ * workspace view to retrieve and revalidate all scopes from a parent checkout.
+ */
+export function resolveGitContexts(cwd = process.cwd()): GitContext[] {
+  const primary = resolveGitContext(cwd);
+  if (primary.headCommit === null) return [primary];
+  return [
+    primary,
+    ...nestedRepositoryRoots(primary.repositoryRoot).map((root) => resolveGitContext(root)),
+  ];
 }
 
 export function resolveCommitRelation(

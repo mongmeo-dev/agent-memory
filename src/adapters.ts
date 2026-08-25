@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { buildActiveContext, type ContextOptions } from "./context.js";
-import { resolveGitContext } from "./git-context.js";
+import { buildWorkspaceActiveContext, type ContextOptions } from "./context.js";
+import { resolveGitContext, resolveGitContexts } from "./git-context.js";
 import { projectLifecycleEvent } from "./projector.js";
 import { isExcludedPath } from "./redaction.js";
 import { defaultSpoolPath, replaySpool, spoolEvent } from "./spool.js";
@@ -268,7 +268,13 @@ export function ingestAdapterPayload(
     }
     const context =
       normalized.type === "session.started" || normalized.type === "prompt.submitted"
-        ? buildActiveContext(store, git, dependencies.contextOptions)
+        ? buildWorkspaceActiveContext(
+            store,
+            dependencies.resolveGitContext === undefined
+              ? resolveGitContexts(normalized.cwd)
+              : [git],
+            dependencies.contextOptions,
+          )
         : "";
     return context;
   } catch {

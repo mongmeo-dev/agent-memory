@@ -36,10 +36,10 @@ function formatMemory(memory: Memory): string {
   ].join("\n");
 }
 
-/** Builds a bounded, explicitly untrusted context from active project memories only. */
-export function buildActiveContext(
+/** Builds a bounded, explicitly untrusted context from active workspace memories only. */
+export function buildWorkspaceActiveContext(
   store: MemoryStore,
-  git: GitContext,
+  contexts: GitContext[],
   options: ContextOptions = {},
 ): string {
   const maxItems = Math.max(0, Math.floor(options.maxItems ?? DEFAULT_MAX_ITEMS));
@@ -47,8 +47,15 @@ export function buildActiveContext(
   const overhead = OPEN_DELIMITER.length + CLOSE_DELIMITER.length + 2;
   if (maxItems === 0 || maxCharacters < overhead) return "";
 
-  const memories = store
-    .listMemories({ projectId: git.projectId, status: "active", limit: Math.min(maxItems, 200) })
+  const branches = new Map(contexts.map((context) => [context.projectId, context.branch]));
+  const memories = contexts
+    .flatMap((context) =>
+      store.listMemories({
+        projectId: context.projectId,
+        status: "active",
+        limit: Math.min(maxItems, 200),
+      }),
+    )
     .filter((memory) => memory.validity !== "contradicted" && memory.validity !== "orphaned")
     .sort((left, right) => {
       const validityOrder = {
@@ -60,8 +67,8 @@ export function buildActiveContext(
         orphaned: 5,
       } as const;
       const validityDifference = validityOrder[left.validity] - validityOrder[right.validity];
-      const leftCurrent = left.branch === git.branch ? 0 : 1;
-      const rightCurrent = right.branch === git.branch ? 0 : 1;
+      const leftCurrent = left.branch === branches.get(left.projectId) ? 0 : 1;
+      const rightCurrent = right.branch === branches.get(right.projectId) ? 0 : 1;
       return (
         validityDifference ||
         leftCurrent - rightCurrent ||
@@ -77,6 +84,14 @@ export function buildActiveContext(
     entries.push(entry);
   }
   return entries.length === 0 ? "" : [OPEN_DELIMITER, ...entries, CLOSE_DELIMITER].join("\n");
+}
+
+export function buildActiveContext(
+  store: MemoryStore,
+  git: GitContext,
+  options: ContextOptions = {},
+): string {
+  return buildWorkspaceActiveContext(store, [git], options);
 }
 
 export const buildMemoryContext = buildActiveContext;
