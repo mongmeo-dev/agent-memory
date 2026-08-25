@@ -37,6 +37,7 @@ describe("MCP server", () => {
       "memory.record",
       "memory.search",
       "memory.get",
+      "memory.feedback",
     ]);
 
     const recorded = await client.callTool({
@@ -57,5 +58,11 @@ describe("MCP server", () => {
     });
     const results = JSON.parse(textFrom(searched)) as { id: string }[];
     expect(results.map((result) => result.id)).toContain(memory.id);
+
+    const resource = await client.readResource({ uri: "memory://context/current" });
+    const content = resource.contents[0];
+    if (content === undefined || !("text" in content))
+      throw new Error("텍스트 resource가 필요합니다.");
+    expect(content.text).toContain(memory.id);
   });
 });

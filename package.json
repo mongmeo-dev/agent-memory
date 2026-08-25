@@ -5,7 +5,12 @@
   "type": "module",
   "bin": {
     "agents-memory": "dist/cli.js",
-    "agents-memory-mcp": "dist/mcp.js"
+    "agents-memory-adapter": "dist/adapter-cli.js",
+    "agents-memory-daemon": "dist/daemon.js",
+    "agents-memory-mcp": "dist/mcp.js",
+    "agents-memory-sync-admin": "dist/sync-admin.js",
+    "agents-memory-sync-migrate": "dist/sync-migrate.js",
+    "agents-memory-sync-service": "dist/sync-service.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -15,19 +20,24 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "test": "vitest run",
-    "start:mcp": "node dist/mcp.js"
+    "start:mcp": "node dist/mcp.js",
+    "start:web": "node dist/cli.js serve",
+    "start:sync-service": "node dist/sync-service.js",
+    "sync:migrate": "node dist/sync-migrate.js"
   },
   "engines": {
     "node": ">=24.0.0"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
+    "pg": "^8.23.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.10",
     "@modelcontextprotocol/client": "^2.0.0",
     "@types/node": "^24.10.0",
+    "@types/pg": "^8.23.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   }

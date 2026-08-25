@@ -34,7 +34,7 @@ describe("setupClients", () => {
     expect(results[2]?.command).toContain("--force");
   });
 
-  it("Codex의 지원하지 않는 프로젝트 범위를 건너뛴다", () => {
+  it("Codex 프로젝트 범위에서는 hook만 설치할 계획을 반환한다", () => {
     const [result] = setupClients({
       clients: ["codex"],
       scope: "project",
@@ -43,7 +43,8 @@ describe("setupClients", () => {
       dryRun: true,
     });
 
-    expect(result?.status).toBe("skipped");
+    expect(result?.status).toBe("planned");
+    expect(result?.message).toContain("프로젝트 범위 MCP");
   });
 
   it("기존 등록을 제거한 뒤 같은 이름으로 다시 등록한다", () => {
@@ -61,6 +62,7 @@ describe("setupClients", () => {
         mcpPath: MCP_PATH,
       },
       runner,
+      () => ({ artifacts: ["test-hook"], needsReview: false }),
     );
 
     expect(result?.status).toBe("configured");

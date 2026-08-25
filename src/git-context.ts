@@ -73,3 +73,17 @@ export function resolveGitContext(cwd = process.cwd()): GitContext {
     headCommit: git(repositoryRoot, ["rev-parse", "HEAD"]),
   };
 }
+
+export function resolveCommitRelation(
+  repositoryRoot: string | undefined,
+  currentHead: string | null | undefined,
+  candidate: string | null,
+): "head" | "ancestor" | "diverged" | "unknown" {
+  if (currentHead === undefined || currentHead === null || candidate === null) return "unknown";
+  if (candidate === currentHead) return "head";
+  if (repositoryRoot === undefined) return "unknown";
+  const ancestor = git(repositoryRoot, ["merge-base", "--is-ancestor", candidate, currentHead]);
+  if (ancestor !== null) return "ancestor";
+  const mergeBase = git(repositoryRoot, ["merge-base", candidate, currentHead]);
+  return mergeBase === null ? "unknown" : "diverged";
+}

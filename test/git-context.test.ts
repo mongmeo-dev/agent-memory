@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveGitContext } from "../src/git-context.js";
+import { resolveCommitRelation, resolveGitContext } from "../src/git-context.js";
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "ignore" });
@@ -32,6 +32,9 @@ describe("resolveGitContext", () => {
 
     const main = resolveGitContext(directory);
     git(directory, "switch", "-c", "feature/test");
+    writeFileSync(join(directory, "feature.txt"), "feature\n");
+    git(directory, "add", "feature.txt");
+    git(directory, "commit", "-m", "feature");
     const feature = resolveGitContext(directory);
 
     expect(main.repositoryRoot).toBe(realpathSync(directory));
@@ -39,6 +42,12 @@ describe("resolveGitContext", () => {
     expect(main.headCommit).toMatch(/^[0-9a-f]{40}$/);
     expect(feature.branch).toBe("feature/test");
     expect(feature.projectId).toBe(main.projectId);
+    expect(resolveCommitRelation(feature.repositoryRoot, feature.headCommit, main.headCommit)).toBe(
+      "ancestor",
+    );
+    expect(
+      resolveCommitRelation(feature.repositoryRoot, feature.headCommit, feature.headCommit),
+    ).toBe("head");
   });
 
   it("Git 저장소가 아니어도 경로 기반 scope를 제공한다", () => {

@@ -1,5 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import type { AdapterInstallOptions, AdapterInstallResult } from "./setup-adapters.js";
+import { installLifecycleAdapter } from "./setup-adapters.js";
 
 export const CLIENT_NAMES = ["claude", "codex", "gjc"] as const;
 export type ClientName = (typeof CLIENT_NAMES)[number];
@@ -10,14 +13,18 @@ export interface SetupOptions {
   scope: SetupScope;
   nodePath: string;
   mcpPath: string;
+  adapterPath?: string;
+  projectRoot?: string;
   databasePath?: string;
   dryRun?: boolean;
 }
 
 export interface SetupResult {
   client: ClientName;
-  status: "configured" | "planned" | "skipped" | "failed";
+  status: "configured" | "needs-review" | "planned" | "skipped" | "failed";
   command?: string[];
+  pluginCommand?: string[];
+  artifacts?: string[];
   message: string;
 }
 
@@ -27,10 +34,15 @@ interface CommandResult {
   stderr: string;
 }
 
-export type CommandRunner = (command: string, args: string[]) => CommandResult;
+export type CommandRunner = (command: string, args: string[], cwd?: string) => CommandResult;
+export type AdapterInstaller = (options: AdapterInstallOptions) => AdapterInstallResult;
 
-const defaultRunner: CommandRunner = (command, args) => {
-  const result = spawnSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+const defaultRunner: CommandRunner = (command, args, cwd) => {
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    ...(cwd === undefined ? {} : { cwd }),
+  });
   return {
     status: result.status,
     ...(result.error === undefined ? {} : { error: result.error }),
@@ -97,6 +109,7 @@ function removeCommand(client: ClientName, scope: SetupScope): string[] {
 export function setupClients(
   options: SetupOptions,
   runner: CommandRunner = defaultRunner,
+  adapterInstaller: AdapterInstaller = installLifecycleAdapter,
 ): SetupResult[] {
   if (!existsSync(options.mcpPath) && options.dryRun !== true) {
     throw new Error(
@@ -105,39 +118,100 @@ export function setupClients(
   }
 
   return options.clients.map((client) => {
-    if (client === "codex" && options.scope === "project") {
+    const commandCwd = options.scope === "project" ? options.projectRoot : undefined;
+    const command = addCommand(client, options);
+    const adapterOptions = {
+      client,
+      scope: options.scope,
+      nodePath: options.nodePath,
+      adapterPath: options.adapterPath ?? join(dirname(options.mcpPath), "adapter-cli.js"),
+      ...(options.databasePath === undefined ? {} : { databasePath: options.databasePath }),
+      ...(options.projectRoot === undefined ? {} : { projectRoot: options.projectRoot }),
+    };
+    if (options.dryRun === true) {
+      const adapter = adapterInstaller({ ...adapterOptions, dryRun: true });
+      const pluginCommand =
+        client === "gjc" && adapter.bundleRoot !== undefined
+          ? [
+              "gjc",
+              "plugin",
+              "install",
+              adapter.bundleRoot,
+              options.scope === "project" ? "--project" : "--user",
+              "--force",
+            ]
+          : undefined;
       return {
         client,
-        status: "skipped",
-        message: "Codex CLI는 프로젝트 범위 MCP 등록을 지원하지 않습니다.",
+        status: "planned",
+        command: [client, ...command],
+        ...(pluginCommand === undefined ? {} : { pluginCommand }),
+        artifacts: adapter.artifacts,
+        message:
+          client === "codex" && options.scope === "project"
+            ? "hook 설치 예정; Codex 프로젝트 범위 MCP는 지원되지 않음"
+            : "MCP와 lifecycle adapter 설치 예정",
       };
-    }
-
-    const command = addCommand(client, options);
-    if (options.dryRun === true) {
-      return { client, status: "planned", command: [client, ...command], message: "실행 예정" };
     }
 
     if (!commandAvailable(client, runner)) {
       return { client, status: "skipped", message: `${client} 실행 파일을 찾을 수 없습니다.` };
     }
 
-    runner(client, removeCommand(client, options.scope));
-    const result = runner(client, command);
-    if (result.status !== 0) {
-      return {
-        client,
-        status: "failed",
-        command: [client, ...command],
-        message: result.stderr.trim() || "MCP 서버 등록에 실패했습니다.",
-      };
+    if (!(client === "codex" && options.scope === "project")) {
+      runner(client, removeCommand(client, options.scope), commandCwd);
+      const result = runner(client, command, commandCwd);
+      if (result.status !== 0) {
+        return {
+          client,
+          status: "failed",
+          command: [client, ...command],
+          message: result.stderr.trim() || "MCP 서버 등록에 실패했습니다.",
+        };
+      }
     }
 
+    const adapter = adapterInstaller(adapterOptions);
+    if (client === "gjc" && adapter.bundleRoot !== undefined) {
+      const pluginCommand = [
+        "plugin",
+        "install",
+        adapter.bundleRoot,
+        options.scope === "project" ? "--project" : "--user",
+        "--force",
+      ];
+      const pluginResult = runner("gjc", pluginCommand, commandCwd);
+      if (pluginResult.status !== 0) {
+        return {
+          client,
+          status: "failed",
+          command: [client, ...command],
+          pluginCommand: ["gjc", ...pluginCommand],
+          artifacts: adapter.artifacts,
+          message: pluginResult.stderr.trim() || "GJC lifecycle plugin 설치에 실패했습니다.",
+        };
+      }
+    }
     return {
       client,
-      status: "configured",
+      status: adapter.needsReview ? "needs-review" : "configured",
       command: [client, ...command],
-      message: `${options.scope} 범위에 등록했습니다.`,
+      ...(client === "gjc" && adapter.bundleRoot !== undefined
+        ? {
+            pluginCommand: [
+              "gjc",
+              "plugin",
+              "install",
+              adapter.bundleRoot,
+              options.scope === "project" ? "--project" : "--user",
+              "--force",
+            ],
+          }
+        : {}),
+      artifacts: adapter.artifacts,
+      message: adapter.needsReview
+        ? `${options.scope} 범위에 등록했습니다. Codex /hooks에서 정의를 검토하고 신뢰해야 합니다.`
+        : `${options.scope} 범위에 MCP와 lifecycle adapter를 등록했습니다.`,
     };
   });
 }

@@ -3,6 +3,37 @@ export interface RedactionResult {
   count: number;
 }
 
+function globRegex(glob: string): RegExp {
+  let pattern = "^";
+  for (let index = 0; index < glob.length; index += 1) {
+    const character = glob[index];
+    if (character === "*" && glob[index + 1] === "*") {
+      pattern += ".*";
+      index += 1;
+    } else if (character === "*") {
+      pattern += "[^/]*";
+    } else if (character === "?") {
+      pattern += "[^/]";
+    } else {
+      pattern += character?.replace(/[|\\{}()[\]^$+?.]/g, "\\$&") ?? "";
+    }
+  }
+  return new RegExp(`${pattern}$`, "u");
+}
+
+export function isExcludedPath(path: string, globs: readonly string[]): boolean {
+  const normalized = path.replaceAll("\\", "/").replace(/^\.\/+/, "");
+  const basename = normalized.split("/").at(-1) ?? normalized;
+  return globs.some((glob) => {
+    const matcher = globRegex(glob);
+    return (
+      matcher.test(normalized) ||
+      (!glob.includes("/") && matcher.test(basename)) ||
+      (glob.startsWith("**/") && globRegex(glob.slice(3)).test(normalized))
+    );
+  });
+}
+
 interface RedactionRule {
   pattern: RegExp;
   replace: string | ((match: string, captures: readonly unknown[]) => string);
@@ -44,7 +75,7 @@ const RULES: RedactionRule[] = [
   },
 ];
 
-export function redact(input: string): RedactionResult {
+export function redact(input: string, customPatterns: readonly string[] = []): RedactionResult {
   let text = input;
   let count = 0;
 
@@ -52,6 +83,13 @@ export function redact(input: string): RedactionResult {
     text = text.replace(rule.pattern, (match: string, ...captures: unknown[]) => {
       count += 1;
       return typeof rule.replace === "string" ? rule.replace : rule.replace(match, captures);
+    });
+  }
+
+  for (const pattern of customPatterns) {
+    text = text.replace(new RegExp(pattern, "gu"), () => {
+      count += 1;
+      return REDACTED;
     });
   }
 
