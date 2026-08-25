@@ -1,152 +1,139 @@
-# 제품 요구사항
+[한국어](product-requirements.ko.md)
 
-## 1. 목표
+# Product Requirements
 
-Claude Code, Codex, GJC에서 수행한 프로젝트 작업을 사용자의 별도 저장 명령 없이
-기억하고, 이후 세션이나 다른 에이전트에서 현재 요청에 필요한 맥락을 자동으로
-복원합니다.
+## 1. Goal
 
-## 2. 대상 사용자
+Remember project work performed in Claude Code, Codex, and GJC without requiring the user to issue a separate save command, then automatically restore the context needed for the current request in later sessions or other agents.
 
-- 여러 세션과 브랜치에서 병렬로 개발하는 개인 개발자
-- Claude Code, Codex, GJC를 번갈아 사용하는 개발자
-- 로컬 데이터 통제와 여러 장치 간 동기화를 모두 원하는 사용자
+## 2. Target Users
 
-## 3. 범위
+- Individual developers working in parallel across multiple sessions and branches
+- Developers who alternate between Claude Code, Codex, and GJC
+- Users who want both local control of their data and synchronization across multiple devices
 
-### 포함
+## 3. Scope
 
-- Claude Code, Codex, GJC용 자동 수집·주입 어댑터
-- 대화, 목표, 계획, 도구 호출, 명령 결과, 코드 변경, 오류, 결정, 미완료 작업 수집
-- 저장 전 민감정보 필터링
-- 프로젝트·worktree·브랜치·커밋 단위 기억
-- 현재 브랜치와 다른 브랜치를 아우르는 검색
-- 로컬 SQLite 저장과 선택적 관리형 원격 동기화
-- CLI와 로컬 웹 UI에서 조회, 수정, 삭제, 내보내기, 수집 중지
-- MCP tools/resources를 통한 명시적 조회와 기록
+### Included
 
-### 초기 범위에서 제외
+- Automatic collection and injection adapters for Claude Code, Codex, and GJC
+- Collection of conversations, goals, plans, tool calls, command results, code changes, errors, decisions, and unfinished work
+- Sensitive-information filtering before storage
+- Memories scoped by project, worktree, branch, and commit
+- Search across the current branch and other branches
+- Local SQLite storage and optional managed remote synchronization
+- Viewing, editing, deleting, exporting, and pausing collection through the CLI and local web UI
+- Explicit retrieval and recording through MCP tools and resources
 
-- 에이전트 제공자의 클라우드 대화 기록을 별도 API로 가져오기
-- 코드 저장소 자체를 범용 RAG 인덱스로 제공하기
-- 조직 단위 권한과 감사 정책
-- 기억을 근거 없이 자동 실행 명령으로 변환하기
+### Excluded from the Initial Scope
 
-## 4. 핵심 사용자 시나리오와 인수 조건
+- Importing an agent provider's cloud conversation history through a separate API
+- Providing the code repository itself as a general-purpose RAG index
+- Organization-level permissions and audit policies
+- Converting memories into automatically executed commands without supporting evidence
 
-### S1. 같은 브랜치에서 작업 재개
+## 4. Core User Scenarios and Acceptance Criteria
 
-새 세션을 시작하면 최근 목표, 확정된 결정, 변경 사항, 실패 원인과 미완료 작업을
-별도 명령 없이 사용할 수 있어야 합니다.
+### S1. Resume Work on the Same Branch
 
-- 주입된 각 항목에 기억 ID와 근거 이벤트가 존재합니다.
-- 폐기되거나 대체된 결정을 현재 결정으로 제시하지 않습니다.
-- 주입 실패가 에이전트 세션 시작을 막지 않으며 UI에서 실패를 확인할 수 있습니다.
+When a new session starts, recent goals, confirmed decisions, changes, causes of failures, and unfinished work must be available without a separate command.
 
-### S2. 다른 브랜치 작업 이해
+- Every injected item has a memory ID and supporting events.
+- Discarded or superseded decisions are not presented as current decisions.
+- Injection failures do not prevent the agent session from starting, and the failures can be inspected in the UI.
 
-현재 브랜치와 다른 브랜치의 작업을 요청해도 관련 기억을 찾아야 합니다.
+### S2. Understand Work on Another Branch
 
-- 현재 브랜치만 강제 필터링하지 않습니다.
-- 결과에 출처 브랜치, 커밋과 현재 HEAD의 관계를 표시합니다.
-- 동일 내용이면 현재 브랜치, 공통 조상이 가까운 브랜치, 그 외 브랜치 순으로
-  우선하되 의미 관련도가 높은 결과를 누락하지 않습니다.
+Relevant memories must be found even when work from a branch other than the current branch is requested.
 
-### S3. 에이전트 간 연속성
+- Search is not forcibly restricted to the current branch.
+- Results show the source branch, commit, and relationship to the current HEAD.
+- For identical content, results from the current branch are preferred, followed by branches with a nearby common ancestor and then other branches, without omitting highly semantically relevant results.
 
-Claude Code에서 생성된 기억을 Codex와 GJC가 조회할 수 있어야 합니다.
+### S3. Continuity Across Agents
 
-- 세 어댑터가 동일한 정규화 이벤트 계약을 사용합니다.
-- 공급자 고유 필드는 원본 payload에 보존하되 검색 모델에 누출하지 않습니다.
-- 같은 저장소와 브랜치는 에이전트 종류와 무관하게 같은 scope로 해석합니다.
+Memories created in Claude Code must be retrievable by Codex and GJC.
 
-### S4. 민감정보 보호
+- All three adapters use the same normalized event contract.
+- Provider-specific fields are preserved in the original payload but are not exposed to the retrieval model.
+- The same repository and branch are interpreted as the same scope regardless of agent type.
 
-대화와 실행 결과는 필터링을 통과한 후에만 영구 저장되어야 합니다.
+### S4. Protect Sensitive Information
 
-- 알려진 token, private key, 비밀번호, 연결 문자열 패턴을 마스킹합니다.
-- `.env`, 인증서, 사용자 제외 glob에 해당하는 파일 내용은 저장하지 않습니다.
-- 필터 원문은 로그나 오류 메시지에도 남기지 않습니다.
-- 사용자는 저장 전 dry-run 검사와 저장 후 삭제를 수행할 수 있습니다.
+Conversations and execution results must be persisted only after passing through filtering.
 
-### S5. 선택적 원격 동기화
+- Known token, private key, password, and connection string patterns are masked.
+- Contents of `.env` files, certificates, and files matching user exclusion globs are not stored.
+- Unfiltered source text is not retained in logs or error messages.
+- Users can perform a dry-run inspection before storage and delete data after storage.
 
-원격 동기화는 기본 비활성이며 사용자가 활성화한 프로젝트만 전송합니다.
+### S5. Optional Remote Synchronization
 
-- 활성화 전 네트워크 요청이 발생하지 않습니다.
-- 장치별 cursor로 증분 동기화합니다.
-- 충돌 시 이벤트는 모두 보존하고 파생 기억은 최신 근거로 다시 계산합니다.
-- 연결 실패 시 로컬 작업이 계속되고 재시도 상태를 UI에 표시합니다.
+Remote synchronization is disabled by default and transmits data only for projects on which the user has enabled it.
 
-## 5. 기능 요구사항
+- No network requests occur before synchronization is enabled.
+- Synchronization is incremental, using a cursor for each device.
+- On conflict, all events are preserved and derived memories are recalculated from the latest evidence.
+- Local work continues when a connection fails, and retry status is displayed in the UI.
 
-### 수집
+## 5. Functional Requirements
 
-- 어댑터는 provider의 공개 lifecycle 표면에서 얻을 수 있는 범위에 따라
-  `session.started`, `prompt.submitted`, `tool.completed`, `tool.failed`,
-  `turn.completed`, `session.ended`, `git.context.changed` 이벤트를 전달합니다.
-- GJC 공개 plugin 표면은 session 시작/종료와 tool result를 전달하며 prompt context는
-  system appendix와 MCP resource로 주입합니다.
-- event ID를 통한 멱등 처리를 보장합니다.
-- 대용량 출력은 크기 제한과 content hash를 사용하며 무제한 저장하지 않습니다.
-- 이벤트 순서가 뒤바뀌어 도착해도 source timestamp와 ingest timestamp를 보존합니다.
+### Collection
 
-### 기억 추출
+- Adapters emit `session.started`, `prompt.submitted`, `tool.completed`, `tool.failed`, `turn.completed`, `session.ended`, and `git.context.changed` events to the extent available from each provider's public lifecycle surfaces.
+- GJC's public plugin surface emits session start/end and tool results; prompt context is injected through a system appendix and an MCP resource.
+- Event IDs guarantee idempotent processing.
+- Large outputs use size limits and content hashes and are not stored without bounds.
+- Source and ingest timestamps are preserved even when events arrive out of order.
 
-기억 유형은 `goal`, `decision`, `change`, `problem`, `solution`, `constraint`,
-`todo`, `fact`로 제한해 시작합니다.
+### Memory Extraction
 
-- 기억은 요약, 구조화 필드, 근거 이벤트, 유효 scope와 상태를 가집니다.
-- 상태는 `active`, `superseded`, `resolved`, `deleted` 중 하나입니다.
-- LLM 추출 실패 시 원본 이벤트는 남고 재처리할 수 있습니다.
-- 원격 LLM 사용 여부와 공급자는 사용자 선택사항입니다.
-- 단순 조회와 반복 출력은 event archive에만 보관하고 코드 변경, 명시적 결정,
-  실패·해결, 테스트 결과와 미완료 작업만 durable memory로 승격합니다.
-- 기억은 `explicit`, `inferred`, `repository` 출처와 0부터 1 사이의 신뢰도를
-  가집니다.
+The initial set of memory types is limited to `goal`, `decision`, `change`, `problem`, `solution`, `constraint`, `todo`, and `fact`.
 
-### 기억 검증과 handoff
+- A memory has a summary, structured fields, supporting events, a valid scope, and a status.
+- Status is one of `active`, `superseded`, `resolved`, or `deleted`.
+- If LLM extraction fails, the original event remains available for reprocessing.
+- Whether to use a remote LLM, and which provider to use, is the user's choice.
+- Simple lookups and repetitive output remain only in the event archive; only code changes, explicit decisions, failures and solutions, test results, and unfinished work are promoted to durable memory.
+- A memory has an `explicit`, `inferred`, or `repository` provenance and a confidence score from 0 to 1.
 
-- 파일·symbol·commit·diff·명령·테스트를 구조화된 근거로 기억에 연결합니다.
-- 현재 HEAD에서 근거를 재검증해 `verified`, `changed`, `contradicted`,
-  `branch-only`, `orphaned`, `unverified` validity를 부여합니다.
-- session 시작과 Git context 변경 시 deterministic 검사를 수행하며 의미적 충돌
-  검사는 선택적 후속 계층으로 둡니다.
-- `contradicted`와 `orphaned` 기억은 자동 context 주입에서 제외합니다.
-- handoff는 목표, 검증된 변경·결정, 검증 명령과 미완료 작업을 현재 branch와
-  HEAD 정보와 함께 bounded document로 생성합니다.
+### Memory Validation and Handoff
 
-### 검색과 주입
+- Files, symbols, commits, diffs, commands, and tests are linked to memories as structured evidence.
+- Evidence is revalidated against the current HEAD and assigned a validity of `verified`, `changed`, `contradicted`, `branch-only`, `orphaned`, or `unverified`.
+- Deterministic checks run at session start and when Git context changes; semantic conflict checks are an optional subsequent layer.
+- Memories with `contradicted` or `orphaned` validity are excluded from automatic context injection.
+- A handoff is generated as a bounded document containing goals, validated changes and decisions, validation commands, unfinished work, and the current branch and HEAD information.
 
-- SQLite FTS5, scope 필터와 Git 관계 점수를 기본 검색으로 사용합니다.
-- 선택적 임베딩 검색 결과를 reciprocal rank fusion 방식으로 결합합니다.
-- 검색 결과는 관련도, 최신성, branch affinity, 근거 신뢰도로 재정렬합니다.
-- 자동 주입에는 token budget과 항목 수 제한을 둡니다.
-- 기억 본문과 신뢰할 수 없는 원본 텍스트를 시스템 지시로 취급하지 않습니다.
+### Search and Injection
 
-### 관리
+- SQLite FTS5, scope filters, and Git relationship scores provide the default search.
+- Optional embedding search results are combined using reciprocal rank fusion.
+- Search results are reranked by relevance, recency, branch affinity, and evidence confidence.
+- Automatic injection is limited by both a token budget and an item count.
+- Memory bodies and untrusted original text are not treated as system instructions.
 
-- CLI와 웹 UI가 동일한 로컬 API를 사용합니다.
-- 검색, 상세 근거 보기, 수정, 삭제, 내보내기, 수집 pause, 동기화 상태 확인을
-  지원합니다.
-- 삭제는 로컬 파생 데이터와 원격 tombstone까지 전파합니다.
+### Management
 
-## 6. 비기능 요구사항
+- The CLI and web UI use the same local API.
+- They support search, detailed evidence inspection, editing, deletion, export, pausing collection, and synchronization status inspection.
+- Deletion propagates to local derived data and remote tombstones.
 
-- 로컬 검색 p95 200ms 이하(기억 10만 건, 일반 개발 장비 기준)를 목표로 합니다.
-- 수집 hook의 동기 경로는 p95 50ms 이하이며 추출은 비동기로 수행합니다.
-- 로컬 서비스 장애가 에이전트의 본 작업을 차단하지 않아야 합니다.
-- 데이터베이스 schema version과 원자적 migration을 제공합니다.
-- macOS와 Linux를 우선 지원하고 Windows는 후속 검증합니다.
-- 모든 외부 전송은 TLS를 사용하고 인증정보는 OS keychain에 저장합니다.
+## 6. Non-Functional Requirements
 
-## 7. 제품 단계
+- Target p95 latency for local search is at most 200 ms with 100,000 memories on typical development hardware.
+- The synchronous path of a collection hook has a p95 latency of at most 50 ms; extraction runs asynchronously.
+- A local service failure must not block the agent's primary work.
+- The database provides schema versioning and atomic migrations.
+- macOS and Linux are supported first; Windows validation follows later.
+- All external transmission uses TLS, and credentials are stored in the OS keychain.
 
-1. **로컬 코어**: 이벤트 계약, SQLite, 필터, Git scope, FTS 검색, MCP 서버, CLI
-2. **자동 통합**: Claude Code, Codex, GJC 어댑터와 자동 context 주입
-3. **관리 경험**: 로컬 웹 UI, 수정·삭제·pause, 필터 검사
-4. **고급 검색**: 선택적 로컬/원격 임베딩과 하이브리드 재정렬
-5. **동기화 서비스**: 계정, 암호화, 관리형 PostgreSQL, 다중 장치 동기화
+## 7. Product Phases
 
-각 단계는 이전 단계만으로 작동하는 제품이어야 하며 원격 서비스나 임베딩이 로컬
-기억의 필수조건이 되어서는 안 됩니다.
+1. **Local core**: event contract, SQLite, filtering, Git scope, FTS search, MCP server, and CLI
+2. **Automatic integration**: Claude Code, Codex, and GJC adapters with automatic context injection
+3. **Management experience**: local web UI, editing, deletion, pause controls, and filter inspection
+4. **Advanced search**: optional local or remote embeddings and hybrid reranking
+5. **Synchronization service**: accounts, encryption, managed PostgreSQL, and multi-device synchronization
+
+Each phase must produce a working product using only the preceding phases; neither a remote service nor embeddings may become a prerequisite for local memory.

@@ -1,19 +1,27 @@
 # AGENTS-MEMORY
 
-## Common Task Rule
+## Common Task Rules
 
-* 프로젝트에 대한 설명 및 작동 원리와 근거는 [README.md](./README.md)에 추가한다.
-* 사용자와의 인터렉션 및 사고 과정 출력은 한국어 경어체로 한다.
-* AGENTS.local.md 파일이 프로젝트 루트에 존재하는 경우 해당 파일의 내용을 이 파일의 규칙보다 우선하여 적용한다.
-* 사용자의 요청에 모호한 부분이 있다면 추측하지 않고 질문한다.
+- Add project descriptions, operating principles, and supporting rationale to the appropriate README language files.
+- Use polite Korean for interactions with Korean-speaking users.
+- If `AGENTS.local.md` exists in the project root, its rules take precedence over this file.
+- Ask rather than guess when a user request is ambiguous.
 
-## Git Commit Rule
+## Language and Localization
 
-* Git Commit에는 Co-Author를 포함하지 않는다.
-* 커밋 메세지는 한글로 작성한다.
-* 여러 기능의 변경이나 여러 작업이 포함된 내용을 커밋하는 경우 작은 단위로 분리하여 커밋한다.
+- The product targets a global audience. English is the default language for product behavior, source-facing text, command help, logs, errors, generated content, and documentation.
+- All script, CLI, daemon, service, MCP, hook, and API-generated human-readable output MUST be English.
+- When documentation can be split cleanly, maintain separate complete English and Korean files. The default/canonical file MUST be English, and both language versions MUST link to each other.
+- When documentation cannot be split, include both English and Korean in the same file, with English first.
+- Keep the English and Korean documentation semantically synchronized whenever either version changes.
 
-## Docs Rule
+## Git Commit Rules
 
-* 작업 중 작성하는 모든 문서는 `docs/` 디렉토리 하위에 작성한다.
-* Git으로 추적하지 않아야 하거나 사용자의 명시적인 요청에 의해 git으로 추적하지 않는 문서는 `docs/memo/`하위에 작성한다.
+- Do not include Co-Authored-By trailers in commits.
+- Write commit messages in Korean.
+- Split changes that contain multiple features or tasks into small, focused commits.
+
+## Documentation Rules
+
+- Write task documentation under `docs/`, except canonical repository files such as `README.md`, localized README variants, and agent instruction files.
+- Put documents that must not be tracked by Git, or that the user explicitly requests not to track, under `docs/memo/`.
