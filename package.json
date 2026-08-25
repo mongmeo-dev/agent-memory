@@ -1,6 +1,6 @@
 {
   "name": "agents-memory",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "검증 가능한 근거와 Git scope를 사용하는 로컬 우선 에이전트 장기 기억",
   "type": "module",
   "files": [

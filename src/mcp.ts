@@ -54,7 +54,7 @@ export function createMemoryServer(
   store: MemoryStore,
   options: MemoryServerOptions = {},
 ): McpServer {
-  const server = new McpServer({ name: "agents-memory", version: "0.1.0" });
+  const server = new McpServer({ name: "agents-memory", version: "0.1.1" });
   const isEnabled =
     options.automaticUse ?? ((projectId: string) => autoUseStatus(projectId).enabled);
 

@@ -173,7 +173,7 @@ export default function agentsMemory(api) {
       {
         kind: "gajae-code-plugin",
         name: "agents-memory",
-        version: "0.1.0",
+        version: "0.1.1",
         hooks: [
           {
             name: "agents-memory-session-start",
