@@ -2,6 +2,10 @@
   "name": "agents-memory",
   "version": "0.1.1",
   "description": "Local-first durable agent memory with verifiable evidence and Git-aware scope",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mongmeo-dev/agent-memory.git"
+  },
   "type": "module",
   "files": [
     "dist",
