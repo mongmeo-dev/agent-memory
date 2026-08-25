@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { configuredDatabasePath } from "./config.js";
 import { resolveCommitRelation } from "./git-context.js";
+import { evaluateMemoryValidity } from "./memory-ci.js";
 import { redact } from "./redaction.js";
 import type {
   CollectionSettings,
@@ -13,6 +14,8 @@ import type {
   ListEventInput,
   ListMemoryInput,
   Memory,
+  MemoryEvidence,
+  MemoryRevalidationSummary,
   MemorySearchResult,
   OutboxOperation,
   RecordMemoryInput,
@@ -27,7 +30,7 @@ import type {
 const MAX_EVENT_BYTES = 262_144;
 const DEFAULT_SEARCH_LIMIT = 10;
 const MAX_SEARCH_LIMIT = 50;
-const CURRENT_SCHEMA_VERSION = 5;
+const CURRENT_SCHEMA_VERSION = 6;
 const DEFAULT_COLLECTION_SETTINGS: CollectionSettings = {
   paused: false,
   excludedGlobs: [".env*", "**/*.pem", "**/*.key", ".ssh/**", ".gnupg/**"],
@@ -58,6 +61,9 @@ interface MemoryRow {
   kind: Memory["kind"];
   summary: string;
   status: Memory["status"];
+  validity: Memory["validity"];
+  source_type: Memory["sourceType"];
+  confidence: number;
   project_id: string;
   branch: string | null;
   head_commit: string | null;
@@ -65,6 +71,19 @@ interface MemoryRow {
   created_at: string;
   updated_at: string;
   lexical_rank?: number;
+}
+
+interface MemoryEvidenceRow {
+  id: string;
+  memory_id: string;
+  type: MemoryEvidence["type"];
+  repository_path: string | null;
+  symbol: string | null;
+  commit_sha: string | null;
+  content_hash: string | null;
+  command: string | null;
+  exit_code: number | null;
+  observed_at: string;
 }
 
 export function defaultDatabasePath(): string {
@@ -192,6 +211,13 @@ export class MemoryStore {
           status TEXT NOT NULL DEFAULT 'active' CHECK(status IN (
             'active', 'superseded', 'resolved', 'deleted'
           )),
+          validity TEXT NOT NULL DEFAULT 'unverified' CHECK(validity IN (
+            'verified', 'changed', 'contradicted', 'branch-only', 'orphaned', 'unverified'
+          )),
+          source_type TEXT NOT NULL DEFAULT 'explicit' CHECK(source_type IN (
+            'explicit', 'inferred', 'repository'
+          )),
+          confidence REAL NOT NULL DEFAULT 0.5 CHECK(confidence >= 0 AND confidence <= 1),
           project_id TEXT NOT NULL,
           branch TEXT,
           head_commit TEXT,
@@ -207,6 +233,25 @@ export class MemoryStore {
           event_id TEXT NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
           PRIMARY KEY(memory_id, event_id)
         );
+
+        CREATE TABLE memory_repository_evidence (
+          id TEXT PRIMARY KEY,
+          memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+          type TEXT NOT NULL CHECK(type IN (
+            'conversation', 'file', 'symbol', 'commit', 'diff', 'command', 'test'
+          )),
+          repository_path TEXT,
+          symbol TEXT,
+          commit_sha TEXT,
+          content_hash TEXT,
+          command TEXT,
+          exit_code INTEGER,
+          observed_at TEXT NOT NULL
+        );
+        CREATE INDEX memory_repository_evidence_memory_idx
+          ON memory_repository_evidence(memory_id);
+        CREATE INDEX memory_repository_evidence_path_idx
+          ON memory_repository_evidence(repository_path);
 
         CREATE VIRTUAL TABLE memory_fts USING fts5(
           memory_id UNINDEXED,
@@ -248,7 +293,7 @@ export class MemoryStore {
           updated_at TEXT NOT NULL
         );
 
-        PRAGMA user_version = 5;
+        PRAGMA user_version = 6;
         COMMIT;
       `);
     }
@@ -344,6 +389,43 @@ export class MemoryStore {
         COMMIT;
       `);
     }
+
+    const migratedVersion = this.#database.prepare("PRAGMA user_version").get() as {
+      user_version: number;
+    };
+    if (migratedVersion.user_version === 5) {
+      this.#database.exec(`
+        BEGIN;
+        ALTER TABLE memories ADD COLUMN validity TEXT NOT NULL DEFAULT 'unverified'
+          CHECK(validity IN (
+            'verified', 'changed', 'contradicted', 'branch-only', 'orphaned', 'unverified'
+          ));
+        ALTER TABLE memories ADD COLUMN source_type TEXT NOT NULL DEFAULT 'explicit'
+          CHECK(source_type IN ('explicit', 'inferred', 'repository'));
+        ALTER TABLE memories ADD COLUMN confidence REAL NOT NULL DEFAULT 0.5
+          CHECK(confidence >= 0 AND confidence <= 1);
+        CREATE TABLE memory_repository_evidence (
+          id TEXT PRIMARY KEY,
+          memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+          type TEXT NOT NULL CHECK(type IN (
+            'conversation', 'file', 'symbol', 'commit', 'diff', 'command', 'test'
+          )),
+          repository_path TEXT,
+          symbol TEXT,
+          commit_sha TEXT,
+          content_hash TEXT,
+          command TEXT,
+          exit_code INTEGER,
+          observed_at TEXT NOT NULL
+        );
+        CREATE INDEX memory_repository_evidence_memory_idx
+          ON memory_repository_evidence(memory_id);
+        CREATE INDEX memory_repository_evidence_path_idx
+          ON memory_repository_evidence(repository_path);
+        PRAGMA user_version = 6;
+        COMMIT;
+      `);
+    }
   }
 
   ingestEvent(input: IngestEventInput): StoredEvent {
@@ -427,6 +509,21 @@ export class MemoryStore {
   recordMemory(input: RecordMemoryInput): Memory {
     const now = new Date().toISOString();
     const memoryId = randomUUID();
+    const confidence = input.confidence ?? (input.sourceType === "inferred" ? 0.6 : 0.9);
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+      throw new Error("기억 신뢰도는 0 이상 1 이하여야 합니다.");
+    }
+    const sourceType = input.sourceType ?? "explicit";
+    const failedTest = input.evidence?.some(
+      (item) => item.type === "test" && (item.exitCode ?? 0) !== 0,
+    );
+    const validity =
+      input.validity ??
+      (failedTest
+        ? "contradicted"
+        : input.evidence?.some((item) => item.type !== "conversation")
+          ? "verified"
+          : "unverified");
 
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -442,14 +539,17 @@ export class MemoryStore {
       this.#database
         .prepare(`
           INSERT INTO memories (
-            id, kind, summary, status, project_id, branch, head_commit,
-            agent, created_at, updated_at
-          ) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+            id, kind, summary, status, validity, source_type, confidence,
+            project_id, branch, head_commit, agent, created_at, updated_at
+          ) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
         .run(
           memoryId,
           input.kind,
           event.content,
+          validity,
+          sourceType,
+          confidence,
           input.projectId,
           input.branch,
           input.headCommit,
@@ -474,27 +574,34 @@ export class MemoryStore {
           evidenceEventIds.push(evidenceId);
         }
       }
+      for (const evidence of input.evidence ?? []) {
+        this.#database
+          .prepare(`
+            INSERT INTO memory_repository_evidence (
+              id, memory_id, type, repository_path, symbol, commit_sha,
+              content_hash, command, exit_code, observed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `)
+          .run(
+            randomUUID(),
+            memoryId,
+            evidence.type,
+            evidence.repositoryPath ?? null,
+            evidence.symbol ?? null,
+            evidence.commitSha ?? input.headCommit,
+            evidence.contentHash ?? null,
+            evidence.command ?? null,
+            evidence.exitCode ?? null,
+            evidence.observedAt ?? now,
+          );
+      }
       this.#database
         .prepare("INSERT INTO memory_fts (memory_id, summary) VALUES (?, ?)")
         .run(memoryId, event.content);
-      this.#enqueue("memory", memoryId, "upsert", {
-        id: memoryId,
-        kind: input.kind,
-        summary: event.content,
-        status: "active",
-        projectId: input.projectId,
-        branch: input.branch,
-        headCommit: input.headCommit,
-        agent: input.agent,
-        createdAt: now,
-        updatedAt: now,
-        evidenceEventIds,
-      });
-      this.#database.exec("COMMIT");
       const memory = this.getMemory(memoryId);
-      if (memory === null) {
-        throw new Error(`기억 저장 실패: ${memoryId}`);
-      }
+      if (memory === null) throw new Error(`기억 저장 실패: ${memoryId}`);
+      this.#enqueue("memory", memoryId, "upsert", memory);
+      this.#database.exec("COMMIT");
       return memory;
     } catch (error) {
       if (this.#database.isTransaction) this.#database.exec("ROLLBACK");
@@ -584,13 +691,24 @@ export class MemoryStore {
   updateMemory(id: string, input: UpdateMemoryInput, agent = "management"): Memory | null {
     const current = this.getMemory(id);
     if (current === null) return null;
-    if (input.summary === undefined && input.kind === undefined && input.status === undefined) {
+    if (
+      input.summary === undefined &&
+      input.kind === undefined &&
+      input.status === undefined &&
+      input.validity === undefined &&
+      input.confidence === undefined
+    ) {
       return current;
     }
 
     const now = new Date().toISOString();
     const kind = input.kind ?? current.kind;
     const status = input.status ?? current.status;
+    const validity = input.validity ?? current.validity;
+    const confidence = input.confidence ?? current.confidence;
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+      throw new Error("기억 신뢰도는 0 이상 1 이하여야 합니다.");
+    }
 
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -606,10 +724,10 @@ export class MemoryStore {
       this.#database
         .prepare(`
           UPDATE memories
-          SET summary = ?, kind = ?, status = ?, updated_at = ?
+          SET summary = ?, kind = ?, status = ?, validity = ?, confidence = ?, updated_at = ?
           WHERE id = ?
         `)
-        .run(summary, kind, status, now, id);
+        .run(summary, kind, status, validity, confidence, now, id);
       this.#database
         .prepare("INSERT OR IGNORE INTO memory_evidence (memory_id, event_id) VALUES (?, ?)")
         .run(id, event.id);
@@ -623,6 +741,8 @@ export class MemoryStore {
         summary,
         kind,
         status,
+        validity,
+        confidence,
         updatedAt: now,
         evidenceEventIds: [...current.evidenceEventIds, event.id],
       };
@@ -648,6 +768,7 @@ export class MemoryStore {
         )
         .run(now, id);
       this.#database.prepare("DELETE FROM memory_evidence WHERE memory_id = ?").run(id);
+      this.#database.prepare("DELETE FROM memory_repository_evidence WHERE memory_id = ?").run(id);
       for (const eventId of evidenceIds) {
         const references = this.#database
           .prepare("SELECT COUNT(*) AS count FROM memory_evidence WHERE event_id = ?")
@@ -689,6 +810,7 @@ export class MemoryStore {
 
   searchMemories(input: SearchMemoryInput): MemorySearchResult[] {
     const limit = Math.min(Math.max(input.limit ?? DEFAULT_SEARCH_LIMIT, 1), MAX_SEARCH_LIMIT);
+    const candidateLimit = Math.min(limit * 5, 250);
     const rows = this.#database
       .prepare(`
         SELECT m.*, bm25(memory_fts) AS lexical_rank
@@ -697,44 +819,89 @@ export class MemoryStore {
         WHERE memory_fts MATCH ?
           AND m.project_id = ?
           AND m.status != 'deleted'
-        ORDER BY
-          lexical_rank,
-          CASE
-            WHEN ? IS NOT NULL AND m.branch = ? THEN 0
-            WHEN ? IS NOT NULL AND m.branch = ? THEN 1
-            ELSE 2
-          END,
-          m.updated_at DESC
+        ORDER BY lexical_rank, m.updated_at DESC
         LIMIT ?
       `)
-      .all(
-        toFtsQuery(input.query),
-        input.projectId,
-        input.requestedBranch ?? null,
-        input.requestedBranch ?? null,
-        input.currentBranch,
-        input.currentBranch,
-        limit,
-      ) as unknown as MemoryRow[];
+      .all(toFtsQuery(input.query), input.projectId, candidateLimit) as unknown as MemoryRow[];
 
-    return rows.map((row) => {
-      const branchRelation =
-        input.requestedBranch !== undefined && row.branch === input.requestedBranch
-          ? "requested"
-          : row.branch === input.currentBranch
-            ? "current"
-            : "project";
-      return {
-        ...this.#rowToMemory(row),
-        branchRelation,
-        commitRelation: resolveCommitRelation(
+    return rows
+      .map((row) => {
+        const branchRelation: MemorySearchResult["branchRelation"] =
+          input.requestedBranch !== undefined && row.branch === input.requestedBranch
+            ? "requested"
+            : row.branch === input.currentBranch
+              ? "current"
+              : "project";
+        const commitRelation = resolveCommitRelation(
           input.repositoryRoot,
           input.currentHeadCommit,
           row.head_commit,
-        ),
-        rank: row.lexical_rank ?? 0,
-      };
-    });
+        );
+        const lexicalScore = 1 / (1 + Math.abs(row.lexical_rank ?? 0));
+        const branchBoost =
+          branchRelation === "requested" ? 0.3 : branchRelation === "current" ? 0.2 : 0;
+        const commitBoost =
+          commitRelation === "head" ? 0.3 : commitRelation === "ancestor" ? 0.15 : 0;
+        const validityBoost =
+          row.validity === "verified"
+            ? 0.25
+            : row.validity === "changed" || row.validity === "unverified"
+              ? 0
+              : -0.4;
+        const statusPenalty =
+          row.status === "superseded" ? 0.35 : row.status === "resolved" ? 0.15 : 0;
+        return {
+          ...this.#rowToMemory(row),
+          branchRelation,
+          commitRelation,
+          rank:
+            lexicalScore +
+            branchBoost +
+            commitBoost +
+            validityBoost +
+            row.confidence * 0.1 -
+            statusPenalty,
+        };
+      })
+      .sort((left, right) => right.rank - left.rank)
+      .slice(0, limit);
+  }
+
+  revalidateProject(
+    projectId: string,
+    repositoryRoot: string,
+    currentBranch: string | null,
+    currentHeadCommit: string | null,
+  ): MemoryRevalidationSummary {
+    const memories: Memory[] = [];
+    for (let offset = 0; ; offset += 200) {
+      const page = this.listMemories({ projectId, status: "active", limit: 200, offset });
+      memories.push(...page);
+      if (page.length < 200) break;
+    }
+    const byValidity: MemoryRevalidationSummary["byValidity"] = {
+      verified: 0,
+      changed: 0,
+      contradicted: 0,
+      "branch-only": 0,
+      orphaned: 0,
+      unverified: 0,
+    };
+    let changed = 0;
+
+    for (const memory of memories) {
+      const next = evaluateMemoryValidity(memory, repositoryRoot, currentBranch, currentHeadCommit);
+      byValidity[next] += 1;
+      if (next === memory.validity) continue;
+      this.#database
+        .prepare("UPDATE memories SET validity = ?, updated_at = ? WHERE id = ?")
+        .run(next, new Date().toISOString(), memory.id);
+      const updated = this.getMemory(memory.id);
+      if (updated !== null) this.#enqueue("memory", memory.id, "upsert", updated);
+      changed += 1;
+    }
+
+    return { checked: memories.length, changed, byValidity };
   }
 
   getCollectionSettings(): CollectionSettings {
@@ -993,13 +1160,16 @@ export class MemoryStore {
           this.#database
             .prepare(`
               INSERT INTO memories (
-                id, kind, summary, status, project_id, branch, head_commit,
-                agent, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                id, kind, summary, status, validity, source_type, confidence,
+                project_id, branch, head_commit, agent, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT(id) DO UPDATE SET
                 kind = excluded.kind,
                 summary = excluded.summary,
                 status = excluded.status,
+                validity = excluded.validity,
+                source_type = excluded.source_type,
+                confidence = excluded.confidence,
                 project_id = excluded.project_id,
                 branch = excluded.branch,
                 head_commit = excluded.head_commit,
@@ -1011,6 +1181,9 @@ export class MemoryStore {
               memory.kind,
               memory.summary,
               memory.status,
+              memory.validity ?? "unverified",
+              memory.sourceType ?? "explicit",
+              memory.confidence ?? 0.5,
               memory.projectId,
               memory.branch,
               memory.headCommit,
@@ -1026,6 +1199,30 @@ export class MemoryStore {
                 )
                 .run(memory.id, eventId);
             }
+          }
+          this.#database
+            .prepare("DELETE FROM memory_repository_evidence WHERE memory_id = ?")
+            .run(memory.id);
+          for (const evidence of memory.evidence ?? []) {
+            this.#database
+              .prepare(`
+                INSERT INTO memory_repository_evidence (
+                  id, memory_id, type, repository_path, symbol, commit_sha,
+                  content_hash, command, exit_code, observed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `)
+              .run(
+                evidence.id,
+                memory.id,
+                evidence.type,
+                evidence.repositoryPath,
+                evidence.symbol,
+                evidence.commitSha,
+                evidence.contentHash,
+                evidence.command,
+                evidence.exitCode,
+                evidence.observedAt,
+              );
           }
           this.#database.prepare("DELETE FROM memory_fts WHERE memory_id = ?").run(memory.id);
           if (memory.status !== "deleted") {
@@ -1059,6 +1256,9 @@ export class MemoryStore {
           .run(deletedAt, operation.entityId);
         this.#database
           .prepare("DELETE FROM memory_evidence WHERE memory_id = ?")
+          .run(operation.entityId);
+        this.#database
+          .prepare("DELETE FROM memory_repository_evidence WHERE memory_id = ?")
           .run(operation.entityId);
         this.#database
           .prepare("DELETE FROM memory_fts WHERE memory_id = ?")
@@ -1152,22 +1352,41 @@ export class MemoryStore {
   }
 
   #rowToMemory(row: MemoryRow): Memory {
-    const evidence = this.#database
+    const eventEvidence = this.#database
       .prepare("SELECT event_id FROM memory_evidence WHERE memory_id = ? ORDER BY event_id")
       .all(row.id) as unknown as { event_id: string }[];
+    const repositoryEvidence = this.#database
+      .prepare(
+        "SELECT * FROM memory_repository_evidence WHERE memory_id = ? ORDER BY observed_at, id",
+      )
+      .all(row.id) as unknown as MemoryEvidenceRow[];
 
     return {
       id: row.id,
       kind: row.kind,
       summary: row.summary,
       status: row.status,
+      validity: row.validity,
+      sourceType: row.source_type,
+      confidence: row.confidence,
       projectId: row.project_id,
       branch: row.branch,
       headCommit: row.head_commit,
       agent: row.agent,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      evidenceEventIds: evidence.map((item) => item.event_id),
+      evidenceEventIds: eventEvidence.map((item) => item.event_id),
+      evidence: repositoryEvidence.map((item) => ({
+        id: item.id,
+        type: item.type,
+        repositoryPath: item.repository_path,
+        symbol: item.symbol,
+        commitSha: item.commit_sha,
+        contentHash: item.content_hash,
+        command: item.command,
+        exitCode: item.exit_code,
+        observedAt: item.observed_at,
+      })),
     };
   }
 

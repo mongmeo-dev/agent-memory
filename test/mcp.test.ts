@@ -38,6 +38,8 @@ describe("MCP server", () => {
       "memory.search",
       "memory.get",
       "memory.feedback",
+      "memory.revalidate",
+      "memory.handoff",
     ]);
 
     const recorded = await client.callTool({
@@ -58,6 +60,12 @@ describe("MCP server", () => {
     });
     const results = JSON.parse(textFrom(searched)) as { id: string }[];
     expect(results.map((result) => result.id)).toContain(memory.id);
+
+    const handoff = await client.callTool({
+      name: "memory.handoff",
+      arguments: { cwd: process.cwd() },
+    });
+    expect(textFrom(handoff)).toContain("MCP 검색은 프로젝트 범위를 사용한다");
 
     const resource = await client.readResource({ uri: "memory://context/current" });
     const content = resource.contents[0];

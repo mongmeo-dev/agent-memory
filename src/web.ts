@@ -9,11 +9,12 @@ import {
   OpenAICompatibleEmbeddingProvider,
 } from "./embeddings.js";
 import { resolveGitContext } from "./git-context.js";
+import { buildVerifiedHandoff } from "./handoff.js";
 import { redact } from "./redaction.js";
 import { readSpoolLossCount } from "./spool.js";
 import type { MemoryStore } from "./store.js";
 import { SyncClient, syncEndpointId, validateSyncBaseUrl } from "./sync.js";
-import type { CollectionSettings, MemoryKind, MemoryStatus } from "./types.js";
+import type { CollectionSettings, MemoryKind, MemoryStatus, MemoryValidity } from "./types.js";
 import { managementUi } from "./web-ui.js";
 
 const MAX_BODY_BYTES = 1_048_576;
@@ -31,6 +32,14 @@ const memoryStatuses = new Set<Exclude<MemoryStatus, "deleted">>([
   "active",
   "superseded",
   "resolved",
+]);
+const memoryValidities = new Set<MemoryValidity>([
+  "verified",
+  "changed",
+  "contradicted",
+  "branch-only",
+  "orphaned",
+  "unverified",
 ]);
 
 export interface ManagementServerOptions {
@@ -199,6 +208,25 @@ export function createManagementServer(
           context: ingestAdapterPayload(body.client as AdapterClient, body.payload, { store }),
         });
       }
+      if (request.method === "POST" && url.pathname === "/api/revalidate") {
+        const body = await readJson(request);
+        const context = scope(typeof body.cwd === "string" ? body.cwd : null);
+        return sendJson(
+          response,
+          200,
+          store.revalidateProject(
+            context.projectId,
+            context.repositoryRoot,
+            context.branch,
+            context.headCommit,
+          ),
+        );
+      }
+      if (request.method === "GET" && url.pathname === "/api/handoff") {
+        return sendJson(response, 200, {
+          handoff: buildVerifiedHandoff(store, scope(url.searchParams.get("cwd"))),
+        });
+      }
       if (request.method === "GET" && url.pathname === "/api/memories") {
         const context = scope(url.searchParams.get("cwd"));
         const kind = url.searchParams.get("kind");
@@ -296,6 +324,8 @@ export function createManagementServer(
             summary?: string;
             kind?: MemoryKind;
             status?: Exclude<MemoryStatus, "deleted">;
+            validity?: MemoryValidity;
+            confidence?: number;
           } = {};
           if (body.summary !== undefined) update.summary = stringValue(body.summary, "summary");
           if (body.kind !== undefined) {
@@ -310,6 +340,19 @@ export function createManagementServer(
             )
               throw new Error("Invalid memory status.");
             update.status = body.status as Exclude<MemoryStatus, "deleted">;
+          }
+          if (body.validity !== undefined) {
+            if (
+              typeof body.validity !== "string" ||
+              !memoryValidities.has(body.validity as MemoryValidity)
+            )
+              throw new Error("Invalid memory validity.");
+            update.validity = body.validity as MemoryValidity;
+          }
+          if (body.confidence !== undefined) {
+            if (typeof body.confidence !== "number" || body.confidence < 0 || body.confidence > 1)
+              throw new Error("Invalid memory confidence.");
+            update.confidence = body.confidence;
           }
           const memory = store.updateMemory(id, update);
           return memory === null

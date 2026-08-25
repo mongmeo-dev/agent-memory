@@ -27,6 +27,7 @@ export interface AdapterDependencies {
   projectLifecycleEvent?: (
     store: MemoryStore,
     event: ReturnType<MemoryStore["ingestEvent"]>,
+    repositoryRoot?: string,
   ) => unknown;
   contextOptions?: ContextOptions;
 }
@@ -261,7 +262,10 @@ export function ingestAdapterPayload(
       automatic: true,
     });
     const project = dependencies.projectLifecycleEvent ?? projectLifecycleEvent;
-    project(store, event);
+    project(store, event, git.repositoryRoot);
+    if (normalized.type === "session.started" || normalized.type === "git.context.changed") {
+      store.revalidateProject(git.projectId, git.repositoryRoot, git.branch, git.headCommit);
+    }
     const context =
       normalized.type === "session.started" || normalized.type === "prompt.submitted"
         ? buildActiveContext(store, git, dependencies.contextOptions)

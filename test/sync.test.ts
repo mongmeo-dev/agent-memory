@@ -86,6 +86,9 @@ describe("SyncClient", () => {
       kind: "fact",
       summary: "다른 장치에서 온 기억",
       status: "active",
+      validity: "unverified",
+      sourceType: "explicit",
+      confidence: 0.9,
       projectId: "local-project",
       branch: "feature/remote",
       headCommit: "def",
@@ -93,6 +96,7 @@ describe("SyncClient", () => {
       createdAt: "2026-08-25T00:00:00.000Z",
       updatedAt: "2026-08-25T00:00:00.000Z",
       evidenceEventIds: [],
+      evidence: [],
     };
     const operation: OutboxOperation = {
       sequence: 7,

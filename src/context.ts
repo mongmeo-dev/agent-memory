@@ -22,10 +22,15 @@ function escapeXml(value: string): string {
 
 function formatMemory(memory: Memory): string {
   return [
-    `<memory id="${escapeXml(memory.id)}" kind="${escapeXml(memory.kind)}">`,
+    `<memory id="${escapeXml(memory.id)}" kind="${escapeXml(memory.kind)}" validity="${escapeXml(memory.validity)}" confidence="${memory.confidence.toFixed(2)}">`,
     `branch: ${escapeXml(memory.branch ?? "(none)")}`,
     `commit: ${escapeXml(memory.headCommit ?? "(none)")}`,
     `evidence: ${escapeXml(memory.evidenceEventIds.join(", ") || "(none)")}`,
+    `repository_evidence: ${escapeXml(
+      memory.evidence
+        .map((item) => item.repositoryPath ?? item.command ?? item.commitSha ?? item.type)
+        .join(", ") || "(none)",
+    )}`,
     escapeXml(memory.summary),
     "</memory>",
   ].join("\n");
@@ -44,10 +49,24 @@ export function buildActiveContext(
 
   const memories = store
     .listMemories({ projectId: git.projectId, status: "active", limit: Math.min(maxItems, 200) })
+    .filter((memory) => memory.validity !== "contradicted" && memory.validity !== "orphaned")
     .sort((left, right) => {
+      const validityOrder = {
+        verified: 0,
+        changed: 1,
+        unverified: 2,
+        "branch-only": 3,
+        contradicted: 4,
+        orphaned: 5,
+      } as const;
+      const validityDifference = validityOrder[left.validity] - validityOrder[right.validity];
       const leftCurrent = left.branch === git.branch ? 0 : 1;
       const rightCurrent = right.branch === git.branch ? 0 : 1;
-      return leftCurrent - rightCurrent || right.updatedAt.localeCompare(left.updatedAt);
+      return (
+        validityDifference ||
+        leftCurrent - rightCurrent ||
+        right.updatedAt.localeCompare(left.updatedAt)
+      );
     });
 
   const entries: string[] = [];

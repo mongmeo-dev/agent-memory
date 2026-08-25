@@ -225,15 +225,32 @@ export async function hybridSearchMemories(
     .map(({ memory, score }) => {
       const relation = branchRelation(memory, input);
       const branchBoost = relation === "requested" ? 0.004 : relation === "current" ? 0.002 : 0;
+      const commitRelation = resolveCommitRelation(
+        input.repositoryRoot,
+        input.currentHeadCommit,
+        memory.headCommit,
+      );
+      const commitBoost =
+        commitRelation === "head" ? 0.003 : commitRelation === "ancestor" ? 0.0015 : 0;
+      const validityBoost =
+        memory.validity === "verified"
+          ? 0.003
+          : memory.validity === "contradicted" || memory.validity === "orphaned"
+            ? -0.01
+            : 0;
+      const statusPenalty =
+        memory.status === "superseded" ? 0.008 : memory.status === "resolved" ? 0.003 : 0;
       return {
         ...memory,
         branchRelation: relation,
-        commitRelation: resolveCommitRelation(
-          input.repositoryRoot,
-          input.currentHeadCommit,
-          memory.headCommit,
-        ),
-        rank: score + branchBoost,
+        commitRelation,
+        rank:
+          score +
+          branchBoost +
+          commitBoost +
+          validityBoost +
+          memory.confidence * 0.001 -
+          statusPenalty,
       };
     })
     .sort((left, right) => right.rank - left.rank)

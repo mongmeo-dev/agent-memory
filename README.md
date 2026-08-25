@@ -15,6 +15,9 @@
 - **보이지 않는 연속성**: 세션 시작과 작업 중 필요한 기억을 자동으로 주입합니다.
 - **근거가 있는 기억**: 모든 기억에 원본 이벤트, 프로젝트, 브랜치, 커밋, 생성
   시각과 생성 에이전트를 연결합니다.
+- **검증 가능한 기억**: 파일, symbol, commit, 명령과 테스트 근거를 현재 HEAD와
+  대조하고 `verified`, `changed`, `contradicted`, `branch-only`, `orphaned`,
+  `unverified`로 판정합니다.
 - **브랜치 인식**: 현재 브랜치의 기억을 우선하면서 프로젝트 내 다른 브랜치의
   관련 작업도 검색합니다.
 - **통제 가능성**: 사용자는 CLI와 웹 UI에서 기억을 조회, 수정, 삭제하고 수집과
@@ -27,12 +30,14 @@
    전달합니다.
 2. 수집기는 이벤트를 정규화하고 민감정보 필터를 적용한 후 append-only 이벤트
    저장소에 기록합니다.
-3. deterministic projector가 이벤트에서 목표, 결정, 변경, 오류, 해결책과 미완료 작업을
-   구조화된 기억으로 추출합니다.
-4. 검색기는 전문 검색, 메타데이터 필터와 선택적 벡터 검색을 결합합니다.
-5. 현재 Git 브랜치와 커밋 관계를 반영해 결과를 재정렬하고 에이전트에 필요한
+3. quality gate가 단순 조회와 반복 출력은 이벤트 보관에만 남기고, 목표, 결정,
+   코드 변경, 오류, 해결책, 검증 결과와 미완료 작업만 장기 기억으로 승격합니다.
+4. projector는 기억에 파일 hash, symbol, commit, 명령과 테스트 근거를 연결합니다.
+5. Memory CI가 현재 HEAD에서 근거를 재검증하고 오래되거나 충돌한 기억을 구분합니다.
+6. 검색기는 전문 검색, 메타데이터 필터와 선택적 벡터 검색을 결합합니다.
+7. 현재 Git 브랜치, 커밋 관계, 기억 validity와 근거 신뢰도를 반영해 결과를 재정렬하고 에이전트에 필요한
    근거와 함께 제공합니다.
-6. 선택적으로 암호화된 변경분을 관리형 원격 서비스와 동기화합니다.
+8. 선택적으로 암호화된 변경분을 관리형 원격 서비스와 동기화합니다.
 
 MCP 서버만으로는 클라이언트 대화를 수동으로 관찰할 수 없으므로 자동 수집에는
 클라이언트별 어댑터가 필요합니다. Claude Code는 세션·턴·도구 호출 lifecycle
@@ -62,13 +67,16 @@ UI를 하나의 언어로 구현할 수 있기 때문입니다. 임베딩은 초
 - Claude Code·Codex lifecycle command hook과 GJC 검증 plugin bundle
 - hook 이벤트 정규화, 자동 민감정보 제거, 장애 시 redacted local spool과 재처리
 - lifecycle event를 goal/decision/change/problem/solution/constraint/todo/fact로 자동 투영
+- 저가치 tool event를 장기 기억에서 제외하는 deterministic quality gate
+- 파일·symbol·commit·명령·테스트 근거와 현재 저장소 기반 validity 재검증
+- 검증된 변경, 검증 결과와 미완료 작업을 묶는 cross-agent handoff
 - Git remote와 root commit 기반 프로젝트 식별, 브랜치·HEAD 출처 보존
 - SQLite event/memory/evidence/outbox/tombstone 및 FTS5 검색
 - 현재/요청 브랜치 우선 검색과 선택적 OpenAI-compatible embedding RRF 검색
 - 기억 조회·수정·상태 전환·privacy 삭제·전체 export·수집 pause
 - bearer 인증과 Host/Origin 방어가 적용된 localhost 관리 API 및 웹 UI
 - OS keychain 자격증명, 암호화된 PostgreSQL 동기화 서비스, 다중 장치 cursor와 tombstone
-- MCP 도구 5개와 `memory://context/current` resource
+- MCP 도구 7개와 `memory://context/current` resource
 
 ## 빠른 시작
 
@@ -187,6 +195,8 @@ gjc mcp list
 | `memory.search` | 현재 프로젝트 전체에서 FTS 검색 | `query`, `cwd`, `branch`, `limit` |
 | `memory.get` | 기억 ID로 본문과 근거 이벤트 ID 조회 | `id` |
 | `memory.feedback` | 기억 수정과 상태 전환 | `id`, `summary`, `kind`, `status` |
+| `memory.revalidate` | 현재 HEAD에서 저장소 근거와 validity 재검증 | `cwd` |
+| `memory.handoff` | 검증된 변경·테스트·미완료 작업 handoff 생성 | `cwd` |
 
 `memory://context/current` resource는 현재 프로젝트의 active 기억을 현재 브랜치
 우선으로 반환합니다. 내용은 명령이 아닌 `trust="untrusted"` 데이터로 표시됩니다.
@@ -220,6 +230,12 @@ node dist/cli.js record todo "Claude Code 자동 수집 hook을 구현한다" --
 
 # 현재 프로젝트의 기억 검색
 node dist/cli.js search "로컬 저장소"
+
+# 현재 HEAD에서 기억의 코드 근거 재검증
+node dist/cli.js revalidate
+
+# 다른 에이전트가 바로 이어받을 수 있는 검증된 handoff 생성
+node dist/cli.js handoff
 
 # 다른 브랜치를 우선해 검색
 node dist/cli.js search "결제 재시도" --branch feature/payments --limit 20
@@ -516,7 +532,7 @@ npm run build
 
 현재 검증 기준:
 
-- 단위·통합 테스트: 15개 파일, 84개 테스트
+- 단위·통합 테스트: 16개 파일, 89개 테스트
 - 실제 MCP in-memory client/server 도구·resource 왕복
 - 실제 localhost daemon→adapter→SQLite E2E
 - 실제 브라우저에서 기억 생성·조회와 token fragment 제거/reload 유지

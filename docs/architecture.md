@@ -42,7 +42,11 @@ transaction/WAL로 동시 접근 일관성을 유지합니다.
 - `storage-sqlite`: migration, event repository, memory repository, FTS index
 - `git-context`: 저장소 identity, worktree, ref, HEAD와 commit graph 관계 계산
 - `redaction`: 비밀값 탐지, 파일 제외 정책, 크기 제한
-- `projector`: 이벤트를 구조화된 기억으로 변환하고 상태 관계 갱신
+- `projector`: quality gate를 통과한 이벤트만 구조화된 기억으로 승격하고 저장소
+  근거를 추출
+- `memory-ci`: Git HEAD에서 파일 hash, symbol, commit과 테스트 근거를 재검증하고
+  validity 갱신
+- `handoff`: 검증된 변경, 검증 결과와 미완료 작업을 에이전트 간 전달 형식으로 조립
 - `retrieval`: lexical/vector 후보 검색, scope 확장, 재정렬, token budget
 - `mcp-server`: tools/resources와 stdio/HTTP transport
 - `daemon`: ingest·management API, queue, lifecycle
@@ -92,6 +96,11 @@ event를 저장합니다. 브랜치 이름은 이동하거나 삭제될 수 있�
 privacy 삭제는 해당 기억만 참조하는 evidence 원문을 hard-delete하고 tombstone을
 남깁니다. `memories`는 검색을 위한 projection이며 FTS/vector는 summary 변경 시
 같은 transaction에서 갱신·무효화합니다.
+
+`memory_repository_evidence`는 파일·symbol·commit·diff·명령·테스트 근거를
+구조화해 저장합니다. `memories.validity`는 lifecycle `status`와 분리합니다.
+예를 들어 active 기억도 근거 파일이 변경되면 `changed`, 미병합 브랜치에만 있으면
+`branch-only`가 될 수 있습니다.
 
 ## 5. 브랜치 횡단 검색
 
@@ -195,6 +204,8 @@ TLS + 서버 측 암호화를 제공하고, 향후 E2EE 모드에서는 클라�
 - `memory.get`: 기억과 원본 evidence 조회
 - `memory.record`: 어댑터가 포착하지 못한 명시적 결정 기록
 - `memory.feedback`: 유용성, 오류, superseded 상태 반영
+- `memory.revalidate`: 현재 HEAD에서 저장소 근거와 validity 재검증
+- `memory.handoff`: 검증된 변경·테스트·미완료 작업 handoff 생성
 - resource `memory://context/current`: 현재 Git scope의 주입용 context
 
 관리·삭제·동기화 설정은 에이전트가 임의로 수행하지 않도록 MCP가 아닌 로컬 관리

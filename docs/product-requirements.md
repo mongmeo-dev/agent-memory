@@ -100,6 +100,21 @@ Claude Code에서 생성된 기억을 Codex와 GJC가 조회할 수 있어야 �
 - 상태는 `active`, `superseded`, `resolved`, `deleted` 중 하나입니다.
 - LLM 추출 실패 시 원본 이벤트는 남고 재처리할 수 있습니다.
 - 원격 LLM 사용 여부와 공급자는 사용자 선택사항입니다.
+- 단순 조회와 반복 출력은 event archive에만 보관하고 코드 변경, 명시적 결정,
+  실패·해결, 테스트 결과와 미완료 작업만 durable memory로 승격합니다.
+- 기억은 `explicit`, `inferred`, `repository` 출처와 0부터 1 사이의 신뢰도를
+  가집니다.
+
+### 기억 검증과 handoff
+
+- 파일·symbol·commit·diff·명령·테스트를 구조화된 근거로 기억에 연결합니다.
+- 현재 HEAD에서 근거를 재검증해 `verified`, `changed`, `contradicted`,
+  `branch-only`, `orphaned`, `unverified` validity를 부여합니다.
+- session 시작과 Git context 변경 시 deterministic 검사를 수행하며 의미적 충돌
+  검사는 선택적 후속 계층으로 둡니다.
+- `contradicted`와 `orphaned` 기억은 자동 context 주입에서 제외합니다.
+- handoff는 목표, 검증된 변경·결정, 검증 명령과 미완료 작업을 현재 branch와
+  HEAD 정보와 함께 bounded document로 생성합니다.
 
 ### 검색과 주입
 

@@ -22,6 +22,45 @@ export const EVENT_TYPES = [
 export type LifecycleEventType = (typeof EVENT_TYPES)[number];
 export type MemoryKind = (typeof MEMORY_KINDS)[number];
 export type MemoryStatus = "active" | "superseded" | "resolved" | "deleted";
+export type MemoryValidity =
+  | "verified"
+  | "changed"
+  | "contradicted"
+  | "branch-only"
+  | "orphaned"
+  | "unverified";
+export type MemorySourceType = "explicit" | "inferred" | "repository";
+export type MemoryEvidenceType =
+  | "conversation"
+  | "file"
+  | "symbol"
+  | "commit"
+  | "diff"
+  | "command"
+  | "test";
+
+export interface MemoryEvidence {
+  id: string;
+  type: MemoryEvidenceType;
+  repositoryPath: string | null;
+  symbol: string | null;
+  commitSha: string | null;
+  contentHash: string | null;
+  command: string | null;
+  exitCode: number | null;
+  observedAt: string;
+}
+
+export interface RecordMemoryEvidenceInput {
+  type: MemoryEvidenceType;
+  repositoryPath?: string | null;
+  symbol?: string | null;
+  commitSha?: string | null;
+  contentHash?: string | null;
+  command?: string | null;
+  exitCode?: number | null;
+  observedAt?: string;
+}
 
 export interface GitContext {
   projectId: string;
@@ -71,6 +110,10 @@ export interface RecordMemoryInput {
   branch: string | null;
   headCommit: string | null;
   evidenceEventIds?: string[];
+  evidence?: RecordMemoryEvidenceInput[];
+  sourceType?: MemorySourceType;
+  confidence?: number;
+  validity?: MemoryValidity;
 }
 
 export interface Memory {
@@ -78,6 +121,9 @@ export interface Memory {
   kind: MemoryKind;
   summary: string;
   status: MemoryStatus;
+  validity: MemoryValidity;
+  sourceType: MemorySourceType;
+  confidence: number;
   projectId: string;
   branch: string | null;
   headCommit: string | null;
@@ -85,6 +131,7 @@ export interface Memory {
   createdAt: string;
   updatedAt: string;
   evidenceEventIds: string[];
+  evidence: MemoryEvidence[];
 }
 
 export interface SearchMemoryInput {
@@ -116,6 +163,14 @@ export interface UpdateMemoryInput {
   summary?: string;
   kind?: MemoryKind;
   status?: Exclude<MemoryStatus, "deleted">;
+  validity?: MemoryValidity;
+  confidence?: number;
+}
+
+export interface MemoryRevalidationSummary {
+  checked: number;
+  changed: number;
+  byValidity: Record<MemoryValidity, number>;
 }
 
 export interface ListEventInput {

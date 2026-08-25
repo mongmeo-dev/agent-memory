@@ -11,6 +11,7 @@ import {
   OpenAICompatibleEmbeddingProvider,
 } from "./embeddings.js";
 import { resolveGitContext } from "./git-context.js";
+import { buildVerifiedHandoff } from "./handoff.js";
 import { CLIENT_NAMES, type ClientName, type SetupScope, setupClients } from "./setup.js";
 import { installDaemonService } from "./setup-daemon.js";
 import { MemoryStore } from "./store.js";
@@ -62,6 +63,8 @@ function usage(): string {
   agents-memory record KIND SUMMARY... [--agent NAME] [--cwd PATH]
   agents-memory ingest TYPE CONTENT... [--agent NAME] [--cwd PATH]
   agents-memory search QUERY... [--branch NAME] [--limit N] [--cwd PATH]
+  agents-memory revalidate [--cwd PATH]
+  agents-memory handoff [--cwd PATH]
   agents-memory get MEMORY_ID
   agents-memory list [--kind KIND] [--status STATUS] [--branch NAME]
   agents-memory update MEMORY_ID [--summary TEXT] [--kind KIND] [--status STATUS]
@@ -261,6 +264,23 @@ async function run(): Promise<void> {
           ...(limit === undefined ? {} : { limit }),
         }),
       );
+      return;
+    }
+
+    if (command === "revalidate") {
+      output(
+        store.revalidateProject(
+          context.projectId,
+          context.repositoryRoot,
+          context.branch,
+          context.headCommit,
+        ),
+      );
+      return;
+    }
+
+    if (command === "handoff") {
+      process.stdout.write(`${buildVerifiedHandoff(store, context)}\n`);
       return;
     }
 

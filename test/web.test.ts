@@ -118,6 +118,22 @@ describe("management web server", () => {
     expect(app.store.listMemories({ kind: "problem" })).toHaveLength(1);
   });
 
+  it("revalidates memories and returns a verified handoff", async () => {
+    const app = await fixture();
+    await api(app, "/api/memories", {
+      method: "POST",
+      body: JSON.stringify({ kind: "todo", summary: "검증할 작업이 남아 있다." }),
+    });
+    const revalidated = await api(app, "/api/revalidate", {
+      method: "POST",
+      body: "{}",
+    });
+    expect(revalidated.status).toBe(200);
+    expect((await revalidated.json()) as { checked: number }).toMatchObject({ checked: 1 });
+    const handoff = (await (await api(app, "/api/handoff")).json()) as { handoff: string };
+    expect(handoff.handoff).toContain("검증할 작업이 남아 있다.");
+  });
+
   it("does not expose another project through ID detail routes", async () => {
     const app = await fixture();
     const external = app.store.recordMemory({

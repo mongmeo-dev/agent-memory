@@ -12,6 +12,7 @@ import {
   OpenAICompatibleEmbeddingProvider,
 } from "./embeddings.js";
 import { resolveGitContext } from "./git-context.js";
+import { buildVerifiedHandoff } from "./handoff.js";
 import { MemoryStore } from "./store.js";
 import { MEMORY_KINDS } from "./types.js";
 
@@ -81,9 +82,21 @@ export function createMemoryServer(store: MemoryStore): McpServer {
         summary: z.string().min(1),
         agent: z.string().min(1),
         cwd: z.string().optional(),
+        evidence: z
+          .array(
+            z.object({
+              type: z.enum(["conversation", "file", "symbol", "commit", "diff", "command", "test"]),
+              repositoryPath: z.string().optional(),
+              symbol: z.string().optional(),
+              contentHash: z.string().optional(),
+              command: z.string().optional(),
+              exitCode: z.number().int().optional(),
+            }),
+          )
+          .optional(),
       }),
     },
-    ({ kind, summary, agent, cwd }) => {
+    ({ kind, summary, agent, cwd, evidence }) => {
       const context = resolveGitContext(cwd);
       return jsonContent(
         store.recordMemory({
@@ -93,6 +106,20 @@ export function createMemoryServer(store: MemoryStore): McpServer {
           projectId: context.projectId,
           branch: context.branch,
           headCommit: context.headCommit,
+          ...(evidence === undefined
+            ? {}
+            : {
+                evidence: evidence.map((item) => ({
+                  type: item.type,
+                  ...(item.repositoryPath === undefined
+                    ? {}
+                    : { repositoryPath: item.repositoryPath }),
+                  ...(item.symbol === undefined ? {} : { symbol: item.symbol }),
+                  ...(item.contentHash === undefined ? {} : { contentHash: item.contentHash }),
+                  ...(item.command === undefined ? {} : { command: item.command }),
+                  ...(item.exitCode === undefined ? {} : { exitCode: item.exitCode }),
+                })),
+              }),
         }),
       );
     },
@@ -150,10 +177,14 @@ export function createMemoryServer(store: MemoryStore): McpServer {
         summary: z.string().min(1).optional(),
         kind: z.enum(MEMORY_KINDS).optional(),
         status: z.enum(["active", "superseded", "resolved"]).optional(),
+        validity: z
+          .enum(["verified", "changed", "contradicted", "branch-only", "orphaned", "unverified"])
+          .optional(),
+        confidence: z.number().min(0).max(1).optional(),
         agent: z.string().min(1).default("mcp"),
       }),
     },
-    ({ id, summary, kind, status, agent }) =>
+    ({ id, summary, kind, status, validity, confidence, agent }) =>
       jsonContent(
         store.updateMemory(
           id,
@@ -161,10 +192,40 @@ export function createMemoryServer(store: MemoryStore): McpServer {
             ...(summary === undefined ? {} : { summary }),
             ...(kind === undefined ? {} : { kind }),
             ...(status === undefined ? {} : { status }),
+            ...(validity === undefined ? {} : { validity }),
+            ...(confidence === undefined ? {} : { confidence }),
           },
           agent,
         ),
       ),
+  );
+
+  server.registerTool(
+    "memory.revalidate",
+    {
+      description: "현재 Git HEAD를 기준으로 코드 근거와 기억의 유효성을 다시 판정합니다.",
+      inputSchema: z.object({ cwd: z.string().optional() }),
+    },
+    ({ cwd }) => {
+      const context = resolveGitContext(cwd);
+      return jsonContent(
+        store.revalidateProject(
+          context.projectId,
+          context.repositoryRoot,
+          context.branch,
+          context.headCommit,
+        ),
+      );
+    },
+  );
+
+  server.registerTool(
+    "memory.handoff",
+    {
+      description: "검증된 변경, 테스트 근거와 미완료 작업을 에이전트 핸드오프로 생성합니다.",
+      inputSchema: z.object({ cwd: z.string().optional() }),
+    },
+    ({ cwd }) => jsonContent({ handoff: buildVerifiedHandoff(store, resolveGitContext(cwd)) }),
   );
 
   server.registerResource(
@@ -177,8 +238,15 @@ export function createMemoryServer(store: MemoryStore): McpServer {
     },
     async (uri) => {
       const context = resolveGitContext();
+      store.revalidateProject(
+        context.projectId,
+        context.repositoryRoot,
+        context.branch,
+        context.headCommit,
+      );
       const memories = store
         .listMemories({ projectId: context.projectId, status: "active", limit: 50 })
+        .filter((memory) => memory.validity !== "contradicted" && memory.validity !== "orphaned")
         .sort((left, right) => {
           const leftCurrent = left.branch === context.branch ? 0 : 1;
           const rightCurrent = right.branch === context.branch ? 0 : 1;
