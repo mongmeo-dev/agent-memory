@@ -31,10 +31,10 @@ CLI / Web UI <──────────── Local management API ─ SQLi
                                          Managed PostgreSQL service
 ```
 
-하나의 로컬 daemon이 수집, 저장, 검색, MCP와 관리 API를 담당합니다. stdio MCP
-프로세스가 필요한 클라이언트에는 얇은 bridge를 제공하고 실제 상태는 daemon이
-소유합니다. 여러 에이전트 프로세스가 동시에 열려도 SQLite writer와 background
-job이 중복되지 않습니다.
+로컬 daemon이 자동 lifecycle 수집과 관리 API의 주 writer입니다. hook은 daemon을
+먼저 사용하며 장애 시 redacted spool과 SQLite WAL 직접 기록으로 에이전트 작업을
+계속합니다. stdio MCP와 관리 CLI도 같은 schema·정책을 사용하고 SQLite의
+transaction/WAL로 동시 접근 일관성을 유지합니다.
 
 ## 3. 경계와 패키지
 
@@ -60,11 +60,11 @@ job이 중복되지 않습니다.
 
 경로는 worktree와 장치마다 달라질 수 있으므로 identity로 단독 사용하지 않습니다.
 
-- `project_id`: 최초 등록 시 생성한 UUID
-- `repository_fingerprint`: 정규화한 Git remote 집합과 root commit의 hash
-- `checkout`: 장치별 실제 경로
-- remote가 없는 저장소는 root commit과 로컬 생성 UUID를 사용
-- remote 변경은 identity를 즉시 교체하지 않고 alias 이력으로 기록
+- `project_id`: 인증정보를 제거하고 정규화한 Git remote 집합과 root commit의
+  SHA-256 fingerprint
+- `checkout`: 관측 시점의 canonical 저장소 경로
+- remote가 없는 저장소는 canonical 경로와 root commit을 사용
+- branch 이름과 HEAD commit은 fingerprint와 분리해 이벤트·기억에 기록
 
 ### Scope
 
@@ -77,22 +77,21 @@ project
  └─ user-defined workspace
 ```
 
-이벤트는 관측 시점의 `project_id`, `worktree_id`, `ref_name`, `head_commit`을
-저장합니다. 브랜치 이름은 이동하거나 삭제될 수 있으므로 commit ID가 사실의 기준이고
-ref는 관측 metadata입니다.
+이벤트는 관측 시점의 `project_id`, branch, `head_commit`, session ID와 provider
+event를 저장합니다. 브랜치 이름은 이동하거나 삭제될 수 있으므로 commit ID가
+사실의 기준이고 branch는 관측 metadata입니다.
 
 ### 주요 테이블
 
-- `projects`, `project_aliases`, `checkouts`
-- `git_refs`, `commit_relations`
-- `sessions`, `events`, `event_blobs`
-- `memories`, `memory_evidence`, `memory_relations`
-- `redaction_audits`
-- `outbox`, `sync_cursors`, `tombstones`
+- `events`, `memories`, `memory_evidence`
+- `settings`, `outbox`, `tombstones`
+- `memory_embeddings`
 - FTS virtual table `memory_fts`
 
-`events`는 append-only이고 수정은 correction event로 표현합니다. `memories`는 검색을
-위한 파생 projection이며 원본 근거나 projector 버전이 바뀌면 재생성할 수 있습니다.
+`events`는 일반 수정에서 append-only이고 수정은 correction event로 표현합니다.
+privacy 삭제는 해당 기억만 참조하는 evidence 원문을 hard-delete하고 tombstone을
+남깁니다. `memories`는 검색을 위한 projection이며 FTS/vector는 summary 변경 시
+같은 transaction에서 갱신·무효화합니다.
 
 ## 5. 브랜치 횡단 검색
 
@@ -144,13 +143,16 @@ scope의 context를 제한된 budget으로 주입합니다.
 
 ### GJC
 
-공통 이벤트 계약을 runtime lifecycle에 직접 연결하는 native adapter를 사용합니다.
-MCP 조회는 보조 수단이고 자동 수집은 runtime 이벤트에서 수행합니다.
+검증 plugin bundle이 공개 `session_start`, `tool_result`, `session_shutdown`을 공통
+이벤트 계약으로 변환합니다. prompt/agent-end는 공개 plugin hook이 없으므로
+수집한다고 가정하지 않습니다. 대신 system appendix가 세션 context를
+`memory://context/current`에서 조회하도록 지시합니다.
 
 ## 7. 민감정보와 신뢰 경계
 
-처리 순서는 `크기 제한 → 파일 정책 → deterministic secret scanner → 사용자 규칙 →
-영구 저장`입니다. 원문은 이 경로를 통과하기 전에 디스크 queue나 일반 로그에 쓰지
+처리 순서는 `파일 정책 → deterministic secret scanner → 사용자 규칙 → UTF-8 크기
+제한 → 영구 저장`입니다. 크기 경계 바깥에서 끝나는 private-key 블록도 전체 입력에서
+먼저 제거합니다. 원문은 이 경로를 통과하기 전에 디스크 queue나 일반 로그에 쓰지
 않습니다.
 
 기본 차단 대상:
@@ -203,7 +205,8 @@ API와 사용자 UI에 둡니다.
 - hook은 daemon 장애 시 짧은 timeout 후 작업을 방해하지 않고 종료
 - bounded in-memory/secure spool을 사용하며 용량 초과 시 오래된 저가치 이벤트부터
   버리고 손실 수치를 표시
-- projector와 embedding job은 재시도 횟수와 dead-letter 상태를 가짐
+- deterministic projector는 수집 transaction 직후 실행하고 실패 이벤트는 spool
+  replay에서 재시도합니다. embedding은 content hash로 변경분만 멱등 재색인합니다.
 - 로그에는 event 본문 대신 ID, 크기, 상태, latency만 기록
 - UI에서 수집 상태, 필터 차단 수, queue, 마지막 동기화, 실패 원인을 확인
 

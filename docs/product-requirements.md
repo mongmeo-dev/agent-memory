@@ -82,9 +82,11 @@ Claude Code에서 생성된 기억을 Codex와 GJC가 조회할 수 있어야 �
 
 ### 수집
 
-- 어댑터는 `session.started`, `prompt.submitted`, `tool.completed`,
-  `tool.failed`, `turn.completed`, `session.ended`, `git.context.changed` 이벤트를
-  전달합니다.
+- 어댑터는 provider의 공개 lifecycle 표면에서 얻을 수 있는 범위에 따라
+  `session.started`, `prompt.submitted`, `tool.completed`, `tool.failed`,
+  `turn.completed`, `session.ended`, `git.context.changed` 이벤트를 전달합니다.
+- GJC 공개 plugin 표면은 session 시작/종료와 tool result를 전달하며 prompt context는
+  system appendix와 MCP resource로 주입합니다.
 - event ID를 통한 멱등 처리를 보장합니다.
 - 대용량 출력은 크기 제한과 content hash를 사용하며 무제한 저장하지 않습니다.
 - 이벤트 순서가 뒤바뀌어 도착해도 source timestamp와 ingest timestamp를 보존합니다.
