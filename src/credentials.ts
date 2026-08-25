@@ -32,14 +32,16 @@ export class SystemCredentialStore implements CredentialStore {
       if (process.platform === "linux") {
         return command("secret-tool", ["lookup", "service", SERVICE, "endpoint", endpointId]);
       }
-      throw new Error(`지원하지 않는 keychain 플랫폼: ${process.platform}`);
+      throw new Error(`Unsupported keychain platform: ${process.platform}`);
     } catch {
       return null;
     }
   }
 
   set(endpointId: string, token: string): void {
-    if (token.length < 20) throw new Error("동기화 token은 20자 이상이어야 합니다.");
+    if (token.length < 20) {
+      throw new Error("The synchronization token must be at least 20 characters.");
+    }
     if (process.platform === "darwin") {
       command("/usr/bin/security", [
         "add-generic-password",
@@ -61,7 +63,7 @@ export class SystemCredentialStore implements CredentialStore {
       );
       return;
     }
-    throw new Error(`지원하지 않는 keychain 플랫폼: ${process.platform}`);
+    throw new Error(`Unsupported keychain platform: ${process.platform}`);
   }
 
   delete(endpointId: string): void {

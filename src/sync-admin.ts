@@ -32,7 +32,7 @@ export async function revokeTenantToken(
   token: string,
 ): Promise<boolean> {
   if (tokenHmacPepper.length === 0 || token.length === 0) {
-    throw new Error("pepper와 token이 필요합니다.");
+    throw new Error("pepper and token are required.");
   }
   return repository.revokeAccessToken(createHmac("sha256", tokenHmacPepper).update(token).digest());
 }
@@ -53,7 +53,7 @@ export async function runSyncAdmin(): Promise<void> {
     const action = process.argv[2] ?? "create";
     if (action === "revoke") {
       const token = argument("--token");
-      if (token === undefined) throw new Error("revoke에는 --token이 필요합니다.");
+      if (token === undefined) throw new Error("revoke requires --token.");
       process.stdout.write(
         `${JSON.stringify({ revoked: await revokeTenantToken(repository, pepper, token) })}\n`,
       );
@@ -68,7 +68,7 @@ export async function runSyncAdmin(): Promise<void> {
         `tenantId=${result.tenantId}\nprojectId=${result.projectId}\ntoken=${result.token}\n`,
       );
     } else {
-      throw new Error("동작은 create 또는 revoke여야 합니다.");
+      throw new Error("Action must be create or revoke.");
     }
   } finally {
     await pool.end();

@@ -47,7 +47,7 @@ export function configuredDatabasePath(path = defaultConfigPath()): string | nul
 }
 
 export function setConfiguredDatabasePath(databasePath: string, path = defaultConfigPath()): void {
-  if (!isAbsolute(databasePath)) throw new Error("database 경로는 절대 경로여야 합니다.");
+  if (!isAbsolute(databasePath)) throw new Error("The database path must be absolute.");
   writeConfiguration({ ...readConfiguration(path), databasePath }, path);
 }
 
@@ -82,13 +82,13 @@ export function setConfiguredEmbedding(
     try {
       endpoint = new URL(embedding.endpoint);
     } catch {
-      throw new Error("embedding endpoint는 유효한 URL이어야 합니다.");
+      throw new Error("The embedding endpoint must be a valid URL.");
     }
     if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
-      throw new Error("embedding endpoint는 HTTP 또는 HTTPS URL이어야 합니다.");
+      throw new Error("The embedding endpoint must be an HTTP or HTTPS URL.");
     }
     const model = embedding.model.trim();
-    if (model.length === 0) throw new Error("embedding model은 비어 있을 수 없습니다.");
+    if (model.length === 0) throw new Error("The embedding model cannot be empty.");
     configuration.embedding = { endpoint: endpoint.toString(), model };
   }
   writeConfiguration(configuration, path);

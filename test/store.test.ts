@@ -196,7 +196,7 @@ describe("MemoryStore", () => {
         headCommit: "abc",
         automatic: true,
       }),
-    ).toThrow("일시중지");
+    ).toThrow("paused");
 
     const manual = store.ingestEvent({
       type: "memory.manual",

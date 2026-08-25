@@ -42,7 +42,7 @@ function readObject(path: string): JsonObject {
   if (!existsSync(path)) return {};
   const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error(`설정 파일은 JSON 객체여야 합니다: ${path}`);
+    throw new Error(`The configuration file must contain a JSON object: ${path}`);
   }
   return parsed as JsonObject;
 }
@@ -208,7 +208,7 @@ export default function agentsMemory(api) {
 
 export function installLifecycleAdapter(options: AdapterInstallOptions): AdapterInstallResult {
   if (!existsSync(options.adapterPath) && options.dryRun !== true) {
-    throw new Error(`adapter 실행 파일을 찾을 수 없습니다: ${options.adapterPath}`);
+    throw new Error(`Adapter executable not found: ${options.adapterPath}`);
   }
   return options.client === "gjc"
     ? installGjcExtension(options)

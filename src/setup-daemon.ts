@@ -35,12 +35,12 @@ function xml(value: string): string {
 
 export function installDaemonService(options: DaemonInstallOptions): DaemonInstallResult {
   if (!existsSync(options.daemonPath) && options.dryRun !== true) {
-    throw new Error(`daemon 실행 파일을 찾을 수 없습니다: ${options.daemonPath}`);
+    throw new Error(`Daemon executable not found: ${options.daemonPath}`);
   }
   if (process.platform === "darwin") {
     const artifact = join(homedir(), "Library", "LaunchAgents", "dev.agents-memory.daemon.plist");
     if (options.dryRun === true) {
-      return { status: "planned", artifact, message: "launchd user service 설치 예정" };
+      return { status: "planned", artifact, message: "Will install the launchd user service." };
     }
     ensureDaemonToken();
     writeAtomic(
@@ -69,15 +69,15 @@ ${options.databasePath === undefined ? "" : `<key>EnvironmentVariables</key><dic
       return {
         status: "failed",
         artifact,
-        message: `launchd service 시작 실패: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to start the launchd service: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
-    return { status: "configured", artifact, message: "launchd user service를 시작했습니다." };
+    return { status: "configured", artifact, message: "Started the launchd user service." };
   }
   if (process.platform === "linux") {
     const artifact = join(homedir(), ".config", "systemd", "user", "agents-memory.service");
     if (options.dryRun === true) {
-      return { status: "planned", artifact, message: "systemd user service 설치 예정" };
+      return { status: "planned", artifact, message: "Will install the systemd user service." };
     }
     ensureDaemonToken();
     writeAtomic(
@@ -106,14 +106,14 @@ WantedBy=default.target
       return {
         status: "failed",
         artifact,
-        message: `systemd user service 시작 실패: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to start the systemd user service: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
-    return { status: "configured", artifact, message: "systemd user service를 시작했습니다." };
+    return { status: "configured", artifact, message: "Started the systemd user service." };
   }
   return {
     status: "unsupported",
     artifact: null,
-    message: `${process.platform} 서비스 설치는 지원하지 않습니다.`,
+    message: `Service installation is not supported on ${process.platform}.`,
   };
 }

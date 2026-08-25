@@ -112,9 +112,7 @@ export function setupClients(
   adapterInstaller: AdapterInstaller = installLifecycleAdapter,
 ): SetupResult[] {
   if (!existsSync(options.mcpPath) && options.dryRun !== true) {
-    throw new Error(
-      `MCP 서버를 찾을 수 없습니다. 먼저 npm run build를 실행하세요: ${options.mcpPath}`,
-    );
+    throw new Error(`MCP server not found. Run npm run build first: ${options.mcpPath}`);
   }
 
   return options.clients.map((client) => {
@@ -149,13 +147,13 @@ export function setupClients(
         artifacts: adapter.artifacts,
         message:
           client === "codex" && options.scope === "project"
-            ? "hook 설치 예정; Codex 프로젝트 범위 MCP는 지원되지 않음"
-            : "MCP와 lifecycle adapter 설치 예정",
+            ? "Will install hooks; Codex does not support project-scoped MCP registration."
+            : "Will install the MCP server and lifecycle adapter.",
       };
     }
 
     if (!commandAvailable(client, runner)) {
-      return { client, status: "skipped", message: `${client} 실행 파일을 찾을 수 없습니다.` };
+      return { client, status: "skipped", message: `${client} executable not found.` };
     }
 
     if (!(client === "codex" && options.scope === "project")) {
@@ -166,7 +164,7 @@ export function setupClients(
           client,
           status: "failed",
           command: [client, ...command],
-          message: result.stderr.trim() || "MCP 서버 등록에 실패했습니다.",
+          message: result.stderr.trim() || "Failed to register the MCP server.",
         };
       }
     }
@@ -188,7 +186,7 @@ export function setupClients(
           command: [client, ...command],
           pluginCommand: ["gjc", ...pluginCommand],
           artifacts: adapter.artifacts,
-          message: pluginResult.stderr.trim() || "GJC lifecycle plugin 설치에 실패했습니다.",
+          message: pluginResult.stderr.trim() || "Failed to install the GJC lifecycle plugin.",
         };
       }
     }
@@ -210,8 +208,8 @@ export function setupClients(
         : {}),
       artifacts: adapter.artifacts,
       message: adapter.needsReview
-        ? `${options.scope} 범위에 등록했습니다. Codex /hooks에서 정의를 검토하고 신뢰해야 합니다.`
-        : `${options.scope} 범위에 MCP와 lifecycle adapter를 등록했습니다.`,
+        ? `Registered in ${options.scope} scope. Review and trust the definition in Codex /hooks.`
+        : `Registered the MCP server and lifecycle adapter in ${options.scope} scope.`,
     };
   });
 }

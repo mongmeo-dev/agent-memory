@@ -23,7 +23,7 @@ describe("local configuration", () => {
       const databasePath = join(root, "memory.db");
       setConfiguredDatabasePath(databasePath, configPath);
       expect(configuredDatabasePath(configPath)).toBe(databasePath);
-      expect(() => setConfiguredDatabasePath("relative.db", configPath)).toThrow("절대 경로");
+      expect(() => setConfiguredDatabasePath("relative.db", configPath)).toThrow("absolute");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -63,10 +63,10 @@ describe("local configuration", () => {
     try {
       expect(() =>
         setConfiguredEmbedding({ endpoint: "file:///tmp/model", model: "model" }, configPath),
-      ).toThrow("HTTP 또는 HTTPS");
+      ).toThrow("HTTP or HTTPS");
       expect(() =>
         setConfiguredEmbedding({ endpoint: "http://localhost:11434", model: " " }, configPath),
-      ).toThrow("비어 있을 수 없습니다");
+      ).toThrow("cannot be empty");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

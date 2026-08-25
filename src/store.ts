@@ -97,7 +97,7 @@ export function defaultDatabasePath(): string {
 function toFtsQuery(query: string): string {
   const tokens = query.match(/[\p{L}\p{N}_-]+/gu) ?? [];
   if (tokens.length === 0) {
-    throw new Error("검색어에 문자나 숫자가 필요합니다.");
+    throw new Error("The search query must contain a letter or number.");
   }
   return [...new Set(tokens)].map((token) => `"${token}"`).join(" OR ");
 }
@@ -174,7 +174,7 @@ export class MemoryStore {
     };
 
     if (version.user_version > CURRENT_SCHEMA_VERSION) {
-      throw new Error(`지원하지 않는 데이터베이스 버전: ${version.user_version}`);
+      throw new Error(`Unsupported database version: ${version.user_version}`);
     }
 
     if (version.user_version === 0) {
@@ -443,7 +443,7 @@ export class MemoryStore {
   #insertEvent(input: IngestEventInput, enqueue = true): StoredEvent {
     const settings = this.getCollectionSettings();
     if (input.automatic === true && settings.paused) {
-      throw new Error("자동 수집이 일시중지되어 있습니다.");
+      throw new Error("Automatic collection is paused.");
     }
     const id = input.id ?? randomUUID();
     const createdAt = input.createdAt ?? new Date().toISOString();
@@ -484,7 +484,7 @@ export class MemoryStore {
       | EventRow
       | undefined;
     if (row === undefined) {
-      throw new Error(`이벤트 저장 실패: ${id}`);
+      throw new Error(`Failed to store event: ${id}`);
     }
     if (
       result.changes === 0 &&
@@ -511,7 +511,7 @@ export class MemoryStore {
     const memoryId = randomUUID();
     const confidence = input.confidence ?? (input.sourceType === "inferred" ? 0.6 : 0.9);
     if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-      throw new Error("기억 신뢰도는 0 이상 1 이하여야 합니다.");
+      throw new Error("Memory confidence must be between 0 and 1.");
     }
     const sourceType = input.sourceType ?? "explicit";
     const failedTest = input.evidence?.some(
@@ -599,7 +599,7 @@ export class MemoryStore {
         .prepare("INSERT INTO memory_fts (memory_id, summary) VALUES (?, ?)")
         .run(memoryId, event.content);
       const memory = this.getMemory(memoryId);
-      if (memory === null) throw new Error(`기억 저장 실패: ${memoryId}`);
+      if (memory === null) throw new Error(`Failed to store memory: ${memoryId}`);
       this.#enqueue("memory", memoryId, "upsert", memory);
       this.#database.exec("COMMIT");
       return memory;
@@ -707,7 +707,7 @@ export class MemoryStore {
     const validity = input.validity ?? current.validity;
     const confidence = input.confidence ?? current.confidence;
     if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-      throw new Error("기억 신뢰도는 0 이상 1 이하여야 합니다.");
+      throw new Error("Memory confidence must be between 0 and 1.");
     }
 
     this.#database.exec("BEGIN IMMEDIATE");
@@ -923,10 +923,12 @@ export class MemoryStore {
 
   setCollectionSettings(settings: CollectionSettings): CollectionSettings {
     if (settings.redactionPatterns.length > 50) {
-      throw new Error("사용자 redaction pattern은 최대 50개까지 지원합니다.");
+      throw new Error("At most 50 custom redaction patterns are supported.");
     }
     for (const pattern of settings.redactionPatterns) {
-      if (pattern.length > 500) throw new Error("redaction pattern은 500자 이하여야 합니다.");
+      if (pattern.length > 500) {
+        throw new Error("Each redaction pattern must be at most 500 characters.");
+      }
       new RegExp(pattern, "gu");
     }
     const normalized: CollectionSettings = {
@@ -1286,7 +1288,7 @@ export class MemoryStore {
       embedding.vector.length === 0 ||
       embedding.vector.some((value) => !Number.isFinite(value))
     ) {
-      throw new Error("임베딩 벡터는 유한한 숫자를 하나 이상 포함해야 합니다.");
+      throw new Error("An embedding vector must contain at least one finite number.");
     }
     this.#database
       .prepare(`

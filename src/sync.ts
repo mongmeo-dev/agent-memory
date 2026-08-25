@@ -41,13 +41,13 @@ function isLoopback(hostname: string): boolean {
 export function validateSyncBaseUrl(value: string, allowInsecureLoopback = false): URL {
   const url = new URL(value);
   if (url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") {
-    throw new Error("동기화 URL에는 인증정보, query 또는 fragment를 포함할 수 없습니다.");
+    throw new Error("The synchronization URL cannot contain credentials, a query, or a fragment.");
   }
   if (
     url.protocol !== "https:" &&
     !(allowInsecureLoopback && url.protocol === "http:" && isLoopback(url.hostname))
   ) {
-    throw new Error("동기화 endpoint는 HTTPS여야 합니다.");
+    throw new Error("The synchronization endpoint must use HTTPS.");
   }
   url.pathname = url.pathname.replace(/\/$/, "");
   return url;
@@ -69,7 +69,7 @@ function projectIdOf(operation: OutboxOperation): string | null {
 async function responseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const message = (await response.text()).slice(0, 500);
-    throw new Error(`동기화 서버 오류 (${response.status}): ${message}`);
+    throw new Error(`Synchronization server error (${response.status}): ${message}`);
   }
   return (await response.json()) as T;
 }

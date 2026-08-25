@@ -44,7 +44,7 @@ describe("setupClients", () => {
     });
 
     expect(result?.status).toBe("planned");
-    expect(result?.message).toContain("프로젝트 범위 MCP");
+    expect(result?.message).toContain("project-scoped MCP");
   });
 
   it("기존 등록을 제거한 뒤 같은 이름으로 다시 등록한다", () => {

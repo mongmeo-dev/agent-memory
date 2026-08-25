@@ -157,7 +157,9 @@ export function createManagementServer(
   options: ManagementServerOptions = {},
 ): ManagementServer {
   const host = options.host ?? "127.0.0.1";
-  if (!isLoopbackHost(host)) throw new Error("관리 서버는 loopback 주소에만 bind할 수 있습니다.");
+  if (!isLoopbackHost(host)) {
+    throw new Error("The management server can bind only to a loopback address.");
+  }
   const port = options.port ?? 3789;
   const token = options.token ?? randomBytes(32).toString("base64url");
   const credentials = options.credentialStore ?? new SystemCredentialStore();
@@ -203,7 +205,7 @@ export function createManagementServer(
       if (request.method === "POST" && url.pathname === "/api/adapter") {
         const body = await readJson(request);
         if (body.client !== "claude" && body.client !== "codex" && body.client !== "gjc") {
-          throw new Error("올바른 adapter client가 필요합니다.");
+          throw new Error("A valid adapter client is required.");
         }
         return sendJson(response, 200, {
           context: ingestAdapterPayload(body.client as AdapterClient, body.payload, {
@@ -480,10 +482,10 @@ export function createManagementServer(
           current.remoteProjectId === null ||
           current.endpointId === null
         ) {
-          throw new Error("동기화가 설정되지 않았습니다.");
+          throw new Error("Synchronization is not configured.");
         }
         const remoteToken = credentials.get(current.endpointId);
-        if (remoteToken === null) throw new Error("동기화 자격증명을 찾을 수 없습니다.");
+        if (remoteToken === null) throw new Error("Synchronization credentials were not found.");
         try {
           const result = await new SyncClient(store, {
             baseUrl: current.baseUrl,
@@ -501,7 +503,8 @@ export function createManagementServer(
         } catch (error) {
           store.setSyncSettings(context.projectId, {
             ...current,
-            lastError: error instanceof Error ? error.message.slice(0, 500) : "동기화 실패",
+            lastError:
+              error instanceof Error ? error.message.slice(0, 500) : "Synchronization failed",
           });
           throw error;
         }

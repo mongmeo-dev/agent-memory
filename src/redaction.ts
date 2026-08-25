@@ -44,7 +44,7 @@ const REDACTED = "[REDACTED]";
 function capture(values: readonly unknown[], index: number): string {
   const value = values[index];
   if (typeof value !== "string") {
-    throw new Error(`민감정보 필터 캡처 ${index}가 문자열이 아닙니다.`);
+    throw new Error(`Sensitive-data filter capture ${index} is not a string.`);
   }
   return value;
 }

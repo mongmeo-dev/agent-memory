@@ -33,7 +33,7 @@ function parseEmbeddingResponse(value: unknown, expectedCount: number): number[]
     !("data" in value) ||
     !Array.isArray(value.data)
   ) {
-    throw new Error("임베딩 서버 응답에 data 배열이 없습니다.");
+    throw new Error("The embedding server response does not contain a data array.");
   }
   const ordered = value.data
     .map((item: unknown) => {
@@ -46,14 +46,14 @@ function parseEmbeddingResponse(value: unknown, expectedCount: number): number[]
         !Array.isArray(item.embedding) ||
         item.embedding.some((entry) => typeof entry !== "number" || !Number.isFinite(entry))
       ) {
-        throw new Error("임베딩 서버가 올바르지 않은 벡터를 반환했습니다.");
+        throw new Error("The embedding server returned an invalid vector.");
       }
       return { index: item.index, vector: item.embedding as number[] };
     })
     .sort((left, right) => left.index - right.index)
     .map((item) => item.vector);
   if (ordered.length !== expectedCount || ordered.some((vector) => vector.length === 0)) {
-    throw new Error("임베딩 서버의 벡터 수 또는 차원이 올바르지 않습니다.");
+    throw new Error("The embedding server returned an invalid vector count or dimension.");
   }
   return ordered;
 }
@@ -84,7 +84,7 @@ export class OpenAICompatibleEmbeddingProvider implements EmbeddingProvider {
     });
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`임베딩 서버 오류 (${response.status}): ${body.slice(0, 500)}`);
+      throw new Error(`Embedding server error (${response.status}): ${body.slice(0, 500)}`);
     }
     return parseEmbeddingResponse(await response.json(), texts.length);
   }
@@ -134,11 +134,13 @@ export async function indexProjectMemories(
     const batch = stale.slice(index, index + batchSize);
     const vectors = await provider.embed(batch.map((memory) => memory.summary));
     if (vectors.length !== batch.length) {
-      throw new Error("임베딩 공급자가 요청한 개수와 다른 벡터 수를 반환했습니다.");
+      throw new Error(
+        "The embedding provider returned a different number of vectors than requested.",
+      );
     }
     for (const [offset, memory] of batch.entries()) {
       const vector = vectors[offset];
-      if (vector === undefined) throw new Error("임베딩 벡터가 누락되었습니다.");
+      if (vector === undefined) throw new Error("An embedding vector is missing.");
       store.upsertEmbedding({
         memoryId: memory.id,
         provider: provider.name,
@@ -196,7 +198,7 @@ export async function hybridSearchMemories(
       .map((item) => [item.memoryId, item]),
   );
   const [queryVector] = await provider.embed([input.query]);
-  if (queryVector === undefined) throw new Error("질의 임베딩이 누락되었습니다.");
+  if (queryVector === undefined) throw new Error("The query embedding is missing.");
 
   const vectorRanked = memories
     .flatMap((memory) => {

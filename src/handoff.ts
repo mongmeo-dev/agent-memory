@@ -11,7 +11,7 @@ function line(memory: Memory): string {
 }
 
 function section(title: string, memories: Memory[]): string[] {
-  return [title, ...(memories.length === 0 ? ["- 없음"] : memories.map(line))];
+  return [title, ...(memories.length === 0 ? ["- None"] : memories.map(line))];
 }
 
 /** Builds a deterministic handoff from durable memories and repository evidence. */

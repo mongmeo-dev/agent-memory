@@ -53,7 +53,7 @@ function parseArguments(args: string[]): ParsedArguments {
       continue;
     }
     if (flagValue === undefined || flagValue.startsWith("--")) {
-      throw new Error(`--${name} 옵션 값이 필요합니다.`);
+      throw new Error(`--${name} requires a value.`);
     }
     flags.set(name, flagValue);
     index += 1;
@@ -63,7 +63,7 @@ function parseArguments(args: string[]): ParsedArguments {
 }
 
 function usage(): string {
-  return `사용법:
+  return `Usage:
   agents-memory context [--cwd PATH]
   agents-memory project [status|use|ignore|default] [--cwd PATH]
   agents-memory setup [all|claude|codex|gjc] [--scope user|project]
@@ -110,7 +110,7 @@ async function run(): Promise<void> {
   const { positional, flags } = parseArguments(rawArguments);
   const contexts = resolveGitContexts(flags.get("cwd"));
   const context = contexts[0];
-  if (context === undefined) throw new Error("Git context를 확인할 수 없습니다.");
+  if (context === undefined) throw new Error("Unable to resolve the Git context.");
 
   if (command === "context") {
     output({ ...context, repositories: contexts });
@@ -119,12 +119,12 @@ async function run(): Promise<void> {
 
   if (command === "project") {
     const action = positional[0] ?? "status";
-    if (positional.length > 1) throw new Error("project 동작은 하나만 지정할 수 있습니다.");
+    if (positional.length > 1) throw new Error("Specify only one project action.");
     if (action === "use") setConfiguredProjectAutoUse(context.projectId, true);
     else if (action === "ignore") setConfiguredProjectAutoUse(context.projectId, false);
     else if (action === "default") setConfiguredProjectAutoUse(context.projectId, null);
     else if (action !== "status") {
-      throw new Error("project 동작은 status, use, ignore, default 중 하나여야 합니다.");
+      throw new Error("Project action must be status, use, ignore, or default.");
     }
     output({
       projectId: context.projectId,
@@ -137,12 +137,12 @@ async function run(): Promise<void> {
   if (command === "settings" && positional[0] === "auto-use") {
     const action = positional[1] ?? "show";
     if (positional.length > 2) {
-      throw new Error("settings auto-use 동작은 하나만 지정할 수 있습니다.");
+      throw new Error("Specify only one settings auto-use action.");
     }
     if (action === "on") setConfiguredAutoUse(true);
     else if (action === "off") setConfiguredAutoUse(false);
     else if (action !== "show") {
-      throw new Error("settings auto-use 동작은 show, on, off 중 하나여야 합니다.");
+      throw new Error("Settings auto-use action must be show, on, or off.");
     }
     output({ autoUse: configuredAutoUse() });
     return;
@@ -154,11 +154,11 @@ async function run(): Promise<void> {
       positional.length > 1 ||
       (target !== "all" && !CLIENT_NAMES.includes(target as ClientName))
     ) {
-      throw new Error("setup 대상은 all, claude, codex, gjc 중 하나여야 합니다.");
+      throw new Error("Setup target must be all, claude, codex, or gjc.");
     }
     const scope = flags.get("scope") ?? "user";
     if (scope !== "user" && scope !== "project") {
-      throw new Error("--scope는 user 또는 project여야 합니다.");
+      throw new Error("--scope must be user or project.");
     }
     const clients = target === "all" ? [...CLIENT_NAMES] : [target as ClientName];
     if (flags.has("database") && !flags.has("dry-run")) {
@@ -190,7 +190,7 @@ async function run(): Promise<void> {
     const rawPort = flags.get("port");
     const port = rawPort === undefined ? 3789 : Number.parseInt(rawPort, 10);
     if (!Number.isInteger(port) || port < 0 || port > 65_535) {
-      throw new Error("--port는 0부터 65535 사이의 정수여야 합니다.");
+      throw new Error("--port must be an integer from 0 through 65535.");
     }
     const daemonToken = flags.has("token") ? null : readDaemonToken();
     if (daemonToken !== null && port === 3789) {
@@ -218,7 +218,7 @@ async function run(): Promise<void> {
     });
     await server.start();
     const address = server.address();
-    if (address === null) throw new Error("관리 서버 주소를 확인할 수 없습니다.");
+    if (address === null) throw new Error("Unable to resolve the management server address.");
     output({
       url: `http://127.0.0.1:${address.port}/#token=${encodeURIComponent(server.token)}`,
       host: address.host,
@@ -238,11 +238,11 @@ async function run(): Promise<void> {
     if (command === "list") {
       const kind = flags.get("kind");
       if (kind !== undefined && !MEMORY_KINDS.includes(kind as MemoryKind)) {
-        throw new Error(`올바른 KIND가 필요합니다: ${MEMORY_KINDS.join(", ")}`);
+        throw new Error(`KIND must be one of: ${MEMORY_KINDS.join(", ")}`);
       }
       const status = flags.get("status");
       if (status !== undefined && !["active", "superseded", "resolved"].includes(status)) {
-        throw new Error("--status는 active, superseded, resolved 중 하나여야 합니다.");
+        throw new Error("--status must be active, superseded, or resolved.");
       }
       output(
         store.listMemories({
@@ -260,12 +260,12 @@ async function run(): Promise<void> {
     if (command === "record") {
       const [kindValue, ...summaryParts] = positional;
       if (!MEMORY_KINDS.includes(kindValue as MemoryKind)) {
-        throw new Error(`올바른 KIND가 필요합니다: ${MEMORY_KINDS.join(", ")}`);
+        throw new Error(`KIND must be one of: ${MEMORY_KINDS.join(", ")}`);
       }
       output(
         store.recordMemory({
           kind: kindValue as MemoryKind,
-          summary: required(summaryParts, "기억할 내용이 필요합니다."),
+          summary: required(summaryParts, "A memory summary is required."),
           agent: flags.get("agent") ?? "cli",
           projectId: context.projectId,
           branch: context.branch,
@@ -277,11 +277,11 @@ async function run(): Promise<void> {
 
     if (command === "ingest") {
       const [type, ...contentParts] = positional;
-      if (type === undefined) throw new Error("이벤트 TYPE이 필요합니다.");
+      if (type === undefined) throw new Error("An event TYPE is required.");
       output(
         store.ingestEvent({
           type,
-          content: required(contentParts, "이벤트 내용이 필요합니다."),
+          content: required(contentParts, "Event content is required."),
           agent: flags.get("agent") ?? "cli",
           projectId: context.projectId,
           branch: context.branch,
@@ -295,9 +295,9 @@ async function run(): Promise<void> {
       const rawLimit = flags.get("limit");
       const limit = rawLimit === undefined ? undefined : Number.parseInt(rawLimit, 10);
       if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
-        throw new Error("--limit은 1 이상의 정수여야 합니다.");
+        throw new Error("--limit must be an integer greater than or equal to 1.");
       }
-      const query = required(positional, "검색어가 필요합니다.");
+      const query = required(positional, "A search query is required.");
       const resultLimit = limit ?? 20;
       output(
         contexts
@@ -341,36 +341,36 @@ async function run(): Promise<void> {
     }
 
     if (command === "get") {
-      const id = required(positional, "MEMORY_ID가 필요합니다.");
+      const id = required(positional, "MEMORY_ID is required.");
       const memory = store.getMemory(id);
-      if (memory === null) throw new Error(`기억을 찾을 수 없습니다: ${id}`);
+      if (memory === null) throw new Error(`Memory not found: ${id}`);
       output(memory);
       return;
     }
 
     if (command === "update") {
-      const id = required(positional, "MEMORY_ID가 필요합니다.");
+      const id = required(positional, "MEMORY_ID is required.");
       const kind = flags.get("kind");
       if (kind !== undefined && !MEMORY_KINDS.includes(kind as MemoryKind)) {
-        throw new Error(`올바른 KIND가 필요합니다: ${MEMORY_KINDS.join(", ")}`);
+        throw new Error(`KIND must be one of: ${MEMORY_KINDS.join(", ")}`);
       }
       const status = flags.get("status");
       if (status !== undefined && !["active", "superseded", "resolved"].includes(status)) {
-        throw new Error("--status는 active, superseded, resolved 중 하나여야 합니다.");
+        throw new Error("--status must be active, superseded, or resolved.");
       }
       const memory = store.updateMemory(id, {
         ...(flags.has("summary") ? { summary: flags.get("summary") as string } : {}),
         ...(kind === undefined ? {} : { kind: kind as MemoryKind }),
         ...(status === undefined ? {} : { status: status as "active" | "superseded" | "resolved" }),
       });
-      if (memory === null) throw new Error(`기억을 찾을 수 없습니다: ${id}`);
+      if (memory === null) throw new Error(`Memory not found: ${id}`);
       output(memory);
       return;
     }
 
     if (command === "delete") {
-      const id = required(positional, "MEMORY_ID가 필요합니다.");
-      if (!store.deleteMemory(id)) throw new Error(`기억을 찾을 수 없습니다: ${id}`);
+      const id = required(positional, "MEMORY_ID is required.");
+      if (!store.deleteMemory(id)) throw new Error(`Memory not found: ${id}`);
       output({ deleted: true, id });
       return;
     }
@@ -383,7 +383,7 @@ async function run(): Promise<void> {
         output(store.setCollectionSettings({ ...settings, paused: true }));
       else if (action === "resume") {
         output(store.setCollectionSettings({ ...settings, paused: false }));
-      } else throw new Error("settings 동작은 show, pause, resume 중 하나여야 합니다.");
+      } else throw new Error("Settings action must be show, pause, or resume.");
       return;
     }
 
@@ -423,7 +423,7 @@ async function run(): Promise<void> {
         const endpoint = flags.get("endpoint");
         const model = flags.get("model");
         if (endpoint === undefined || model === undefined) {
-          throw new Error("embeddings configure에는 --endpoint와 --model이 필요합니다.");
+          throw new Error("embeddings configure requires --endpoint and --model.");
         }
         setConfiguredEmbedding({ endpoint, model });
         output(configuredEmbedding());
@@ -438,7 +438,9 @@ async function run(): Promise<void> {
         flags.get("endpoint") ?? process.env.AGENTS_MEMORY_EMBEDDING_ENDPOINT ?? saved?.endpoint;
       const model = flags.get("model") ?? process.env.AGENTS_MEMORY_EMBEDDING_MODEL ?? saved?.model;
       if (endpoint === undefined || model === undefined) {
-        throw new Error("--endpoint/--model, embedding 환경 변수 또는 저장된 설정이 필요합니다.");
+        throw new Error(
+          "Provide --endpoint and --model, embedding environment variables, or saved configuration.",
+        );
       }
       const provider = new OpenAICompatibleEmbeddingProvider({
         endpoint,
@@ -454,7 +456,7 @@ async function run(): Promise<void> {
           await hybridSearchMemories(
             store,
             {
-              query: required(queryParts, "검색어가 필요합니다."),
+              query: required(queryParts, "A search query is required."),
               projectId: context.projectId,
               currentBranch: context.branch,
               repositoryRoot: context.repositoryRoot,
@@ -465,9 +467,7 @@ async function run(): Promise<void> {
           ),
         );
       } else {
-        throw new Error(
-          "embeddings 동작은 show, configure, disable, index 또는 search여야 합니다.",
-        );
+        throw new Error("Embeddings action must be show, configure, disable, index, or search.");
       }
       return;
     }
@@ -490,7 +490,7 @@ async function run(): Promise<void> {
         const token = flags.get("token") ?? process.env.AGENTS_MEMORY_SYNC_TOKEN;
         if (baseUrl === undefined || remoteProjectId === undefined || token === undefined) {
           throw new Error(
-            "configure에는 --url, --remote-project와 --token 또는 AGENTS_MEMORY_SYNC_TOKEN이 필요합니다.",
+            "configure requires --url, --remote-project, and either --token or AGENTS_MEMORY_SYNC_TOKEN.",
           );
         }
         const allowInsecureLoopback = flags.has("allow-insecure-loopback");
@@ -530,17 +530,19 @@ async function run(): Promise<void> {
         return;
       }
       if (action !== "run")
-        throw new Error("sync 동작은 status, configure, run, disable 중 하나여야 합니다.");
+        throw new Error("Sync action must be status, configure, run, or disable.");
       if (
         !current.enabled ||
         current.baseUrl === null ||
         current.remoteProjectId === null ||
         current.endpointId === null
       ) {
-        throw new Error("먼저 sync configure로 프로젝트 동기화를 활성화하세요.");
+        throw new Error("Enable project synchronization with sync configure first.");
       }
       const token = credentials.get(current.endpointId);
-      if (token === null) throw new Error("OS keychain에서 동기화 자격증명을 찾을 수 없습니다.");
+      if (token === null) {
+        throw new Error("Synchronization credentials were not found in the OS keychain.");
+      }
       const client = new SyncClient(store, {
         baseUrl: current.baseUrl,
         token,
@@ -559,14 +561,15 @@ async function run(): Promise<void> {
       } catch (error) {
         store.setSyncSettings(context.projectId, {
           ...current,
-          lastError: error instanceof Error ? error.message.slice(0, 500) : "동기화 실패",
+          lastError:
+            error instanceof Error ? error.message.slice(0, 500) : "Synchronization failed",
         });
         throw error;
       }
       return;
     }
 
-    throw new Error(`알 수 없는 명령: ${command}\n${usage()}`);
+    throw new Error(`Unknown command: ${command}\n${usage()}`);
   } finally {
     store.close();
   }
