@@ -1,0 +1,61 @@
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { createMemoryServer } from "../src/mcp.js";
+import { MemoryStore } from "../src/store.js";
+
+function textFrom(result: Awaited<ReturnType<Client["callTool"]>>): string {
+  const block = result.content[0];
+  if (block?.type !== "text") throw new Error("텍스트 MCP 응답이 필요합니다.");
+  return block.text;
+}
+
+describe("MCP server", () => {
+  let store: MemoryStore;
+  let client: Client;
+  let server: ReturnType<typeof createMemoryServer>;
+
+  beforeEach(async () => {
+    store = new MemoryStore(":memory:");
+    server = createMemoryServer(store);
+    client = new Client({ name: "test-client", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+    store.close();
+  });
+
+  it("도구 목록을 제공하고 기억을 기록한 뒤 검색한다", async () => {
+    const tools = await client.listTools();
+    expect(tools.tools.map((tool) => tool.name)).toEqual([
+      "memory.ingest",
+      "memory.record",
+      "memory.search",
+      "memory.get",
+    ]);
+
+    const recorded = await client.callTool({
+      name: "memory.record",
+      arguments: {
+        kind: "decision",
+        summary: "MCP 검색은 프로젝트 범위를 사용한다",
+        agent: "test-client",
+        cwd: process.cwd(),
+      },
+    });
+    const memory = JSON.parse(textFrom(recorded)) as { id: string; summary: string };
+    expect(memory.summary).toBe("MCP 검색은 프로젝트 범위를 사용한다");
+
+    const searched = await client.callTool({
+      name: "memory.search",
+      arguments: { query: "MCP 검색", cwd: process.cwd() },
+    });
+    const results = JSON.parse(textFrom(searched)) as { id: string }[];
+    expect(results.map((result) => result.id)).toContain(memory.id);
+  });
+});
