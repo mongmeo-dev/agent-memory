@@ -83,9 +83,8 @@ UI를 하나의 언어로 구현할 수 있기 때문입니다. 임베딩은 초
 Node.js 24 이상이 필요합니다.
 
 ```bash
-npm install
-npm run build
-node dist/cli.js setup all
+npm install --global agents-memory
+agents-memory setup all
 ```
 
 `setup all`은 설치된 Claude Code, Codex, GJC를 찾아 MCP와 자동 lifecycle
@@ -96,11 +95,12 @@ localhost daemon을 시작합니다. 설치되지 않은 클라이언트는 `ski
 등록 전에 실행될 명령만 확인할 수도 있습니다.
 
 ```bash
-node dist/cli.js setup all --dry-run
+agents-memory setup all --dry-run
 ```
 
-설정 명령은 현재 Node 실행 파일과 `dist/mcp.js`의 절대 경로를 저장합니다. 저장소를
-옮기거나 Node 설치 경로를 변경한 경우 `npm run build`와 `setup`을 다시 실행해야 합니다.
+설정 명령은 전역 NPM 패키지의 현재 Node 실행 파일과 MCP 진입점 절대 경로를
+저장합니다. 패키지를 갱신한 뒤에는 `agents-memory setup all`을 다시 실행합니다.
+소스 checkout에서 개발할 때만 `npm install && npm run build`가 필요합니다.
 
 daemon은 SQLite writer, adapter ingest, 관리 API와 background 상태를 소유합니다.
 hook은 daemon에 150ms 제한으로 먼저 전달하고 daemon이 중지됐으면 redacted local
@@ -113,19 +113,19 @@ spool/direct SQLite 경로로 작업을 막지 않고 계속합니다. daemon to
 
 ```bash
 # 세 클라이언트 중 설치된 항목을 사용자 범위에 등록
-node dist/cli.js setup all
+agents-memory setup all
 
 # 하나의 클라이언트만 등록
-node dist/cli.js setup claude
-node dist/cli.js setup codex
-node dist/cli.js setup gjc
+agents-memory setup claude
+agents-memory setup codex
+agents-memory setup gjc
 
 # 프로젝트 범위에 등록
-node dist/cli.js setup claude --scope project
-node dist/cli.js setup gjc --scope project
+agents-memory setup claude --scope project
+agents-memory setup gjc --scope project
 
 # 별도 데이터베이스 사용
-node dist/cli.js setup all --database /absolute/path/memory.db
+agents-memory setup all --database /absolute/path/memory.db
 ```
 
 지원하는 scope는 다음과 같습니다.
@@ -218,45 +218,46 @@ gjc mcp list
 
 ## CLI 사용법
 
-CLI는 MCP와 같은 SQLite 저장소와 Git scope 판별 코드를 사용합니다.
+CLI는 MCP와 같은 SQLite 저장소와 Git scope 판별 코드를 사용하며 전역 설치 후
+어느 디렉터리에서나 실행할 수 있습니다.
 
 ```bash
 # 현재 프로젝트 ID, 저장소 루트, 브랜치와 HEAD 확인
-node dist/cli.js context
+agents-memory context
 
 # 장기 기억 생성
-node dist/cli.js record decision "SQLite를 로컬 저장소로 사용한다"
-node dist/cli.js record todo "Claude Code 자동 수집 hook을 구현한다" --agent developer
+agents-memory record decision "SQLite를 로컬 저장소로 사용한다"
+agents-memory record todo "Claude Code 자동 수집 hook을 구현한다" --agent developer
 
 # 현재 프로젝트의 기억 검색
-node dist/cli.js search "로컬 저장소"
+agents-memory search "로컬 저장소"
 
 # 현재 HEAD에서 기억의 코드 근거 재검증
-node dist/cli.js revalidate
+agents-memory revalidate
 
 # 다른 에이전트가 바로 이어받을 수 있는 검증된 handoff 생성
-node dist/cli.js handoff
+agents-memory handoff
 
 # 다른 브랜치를 우선해 검색
-node dist/cli.js search "결제 재시도" --branch feature/payments --limit 20
+agents-memory search "결제 재시도" --branch feature/payments --limit 20
 
 # 원본 이벤트만 저장
-node dist/cli.js ingest tool.completed "npm test: 12 tests passed" --agent codex
+agents-memory ingest tool.completed "npm test: 12 tests passed" --agent codex
 
 # ID로 기억 조회
-node dist/cli.js get 00000000-0000-0000-0000-000000000000
+agents-memory get 00000000-0000-0000-0000-000000000000
 
 # 관리
-node dist/cli.js list --status active
-node dist/cli.js update MEMORY_ID --status resolved
-node dist/cli.js delete MEMORY_ID
-node dist/cli.js settings pause
-node dist/cli.js settings resume
-node dist/cli.js stats
-node dist/cli.js export
+agents-memory list --status active
+agents-memory update MEMORY_ID --status resolved
+agents-memory delete MEMORY_ID
+agents-memory settings pause
+agents-memory settings resume
+agents-memory stats
+agents-memory export
 
 # 관리 웹 UI
-node dist/cli.js serve
+agents-memory serve
 ```
 
 `--cwd PATH`를 사용하면 현재 디렉터리 대신 지정한 checkout의 Git context로

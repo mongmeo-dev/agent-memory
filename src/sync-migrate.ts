@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { Pool } from "pg";
 
 export async function runSyncMigration(
   databaseUrl: string,
-  migrationPath = resolve("migrations/001-sync.sql"),
+  migrationPath = fileURLToPath(new URL("../migrations/001-sync.sql", import.meta.url)),
 ): Promise<void> {
   const sql = await readFile(migrationPath, "utf8");
   const pool = new Pool({ connectionString: databaseUrl });
@@ -29,10 +28,7 @@ export async function runSyncMigration(
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (databaseUrl === undefined) throw new Error("DATABASE_URL이 필요합니다.");
-  await runSyncMigration(
-    databaseUrl,
-    process.env.AGENTS_MEMORY_SYNC_MIGRATION ?? resolve("migrations/001-sync.sql"),
-  );
+  await runSyncMigration(databaseUrl, process.env.AGENTS_MEMORY_SYNC_MIGRATION);
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {

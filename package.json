@@ -1,8 +1,16 @@
 {
   "name": "agents-memory",
   "version": "0.1.0",
-  "private": true,
+  "description": "검증 가능한 근거와 Git scope를 사용하는 로컬 우선 에이전트 장기 기억",
   "type": "module",
+  "files": [
+    "dist",
+    "migrations",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "agents-memory": "dist/cli.js",
     "agents-memory-adapter": "dist/adapter-cli.js",
@@ -14,6 +22,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "check": "npm run typecheck && biome check .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "biome lint .",
