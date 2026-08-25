@@ -612,6 +612,19 @@ npm run build
 - `npm test`: Vitest 단위·통합 테스트
 - `npm run build`: 배포 파일을 `dist/`에 생성
 
+### npm 릴리스
+
+GitHub Release를 발행하면 `.github/workflows/publish-npm.yml`이 실행됩니다.
+워크플로는 릴리스 태그를 체크아웃하고 `v1.2.3` 또는 `1.2.3` 태그에서 패키지
+버전을 설정한 뒤 패키지를 검증하고 provenance와 함께 npm에 배포합니다.
+GitHub 시험판 릴리스에는 npm `next` dist-tag를, 안정 릴리스에는 `latest`를
+사용합니다.
+
+첫 릴리스 전에 npm trusted publisher에 `mongmeo-dev/agent-memory` 저장소와
+`publish-npm.yml` 워크플로를 등록해야 합니다. 이 워크플로는 GitHub OIDC를
+사용하므로 `NPM_TOKEN` secret이 필요하지 않습니다. 생성된 버전 변경은 배포
+작업 공간에만 존재하므로 릴리스 태그가 버전의 단일 기준입니다.
+
 현재 검증 기준:
 
 - 단위·통합 테스트: 16개 파일, 97개 테스트

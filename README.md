@@ -507,6 +507,19 @@ Biome is used for code formatting and linting.
 - `npm test`: Vitest unit/integration tests
 - `npm run build`: Generates distribution files in `dist/`
 
+### npm releases
+
+Publishing a GitHub Release runs `.github/workflows/publish-npm.yml`. The workflow
+checks out the release tag, sets the package version from a `v1.2.3` or `1.2.3`
+tag, verifies the package, and publishes it to npm with provenance. GitHub
+prereleases use the npm `next` dist-tag; stable releases use `latest`.
+
+Configure an npm trusted publisher for the `mongmeo-dev/agent-memory` repository
+and the `publish-npm.yml` workflow before the first release. The workflow uses
+GitHub OIDC and does not require an `NPM_TOKEN` secret. The generated version
+change exists only in the publishing workspace, so release tags remain the
+version source of truth.
+
 Current verification baseline:
 
 - Unit/integration tests: 16 files, 97 tests
