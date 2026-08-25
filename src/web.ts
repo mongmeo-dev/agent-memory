@@ -47,6 +47,7 @@ export interface ManagementServerOptions {
   port?: number;
   token?: string;
   credentialStore?: CredentialStore;
+  automaticUse?: (projectId: string) => boolean;
 }
 
 export interface ManagementServer {
@@ -205,7 +206,12 @@ export function createManagementServer(
           throw new Error("올바른 adapter client가 필요합니다.");
         }
         return sendJson(response, 200, {
-          context: ingestAdapterPayload(body.client as AdapterClient, body.payload, { store }),
+          context: ingestAdapterPayload(body.client as AdapterClient, body.payload, {
+            store,
+            ...(options.automaticUse === undefined
+              ? {}
+              : { automaticUse: (context) => options.automaticUse?.(context.projectId) === true }),
+          }),
         });
       }
       if (request.method === "POST" && url.pathname === "/api/revalidate") {

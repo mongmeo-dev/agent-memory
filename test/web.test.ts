@@ -29,6 +29,7 @@ async function fixture(): Promise<Fixture> {
     port: 0,
     token: "test-management-token",
     credentialStore,
+    automaticUse: () => true,
   });
   await server.start();
   const address = server.address();

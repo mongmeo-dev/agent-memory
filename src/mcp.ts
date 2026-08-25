@@ -6,6 +6,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 
+import { autoUseStatus, configuredEmbedding } from "./config.js";
 import {
   hybridSearchMemories,
   indexProjectMemories,
@@ -22,9 +23,23 @@ function jsonContent(value: unknown) {
   };
 }
 
+function disabledProject(projectId: string): ReturnType<typeof jsonContent> {
+  return jsonContent({
+    enabled: false,
+    projectId,
+    message:
+      "이 프로젝트에서 agents-memory 사용이 꺼져 있습니다. 사용자가 agents-memory project use를 실행해야 합니다.",
+  });
+}
+
+export interface MemoryServerOptions {
+  automaticUse?: (projectId: string) => boolean;
+}
+
 function embeddingProviderFromEnvironment(): OpenAICompatibleEmbeddingProvider | null {
-  const endpoint = process.env.AGENTS_MEMORY_EMBEDDING_ENDPOINT;
-  const model = process.env.AGENTS_MEMORY_EMBEDDING_MODEL;
+  const configured = configuredEmbedding();
+  const endpoint = process.env.AGENTS_MEMORY_EMBEDDING_ENDPOINT ?? configured?.endpoint;
+  const model = process.env.AGENTS_MEMORY_EMBEDDING_MODEL ?? configured?.model;
   if (endpoint === undefined || model === undefined) return null;
   return new OpenAICompatibleEmbeddingProvider({
     endpoint,
@@ -35,8 +50,13 @@ function embeddingProviderFromEnvironment(): OpenAICompatibleEmbeddingProvider |
   });
 }
 
-export function createMemoryServer(store: MemoryStore): McpServer {
+export function createMemoryServer(
+  store: MemoryStore,
+  options: MemoryServerOptions = {},
+): McpServer {
   const server = new McpServer({ name: "agents-memory", version: "0.1.0" });
+  const isEnabled =
+    options.automaticUse ?? ((projectId: string) => autoUseStatus(projectId).enabled);
 
   server.registerTool(
     "memory.ingest",
@@ -55,6 +75,7 @@ export function createMemoryServer(store: MemoryStore): McpServer {
     },
     ({ type, content, agent, cwd, eventId, createdAt, sessionId, providerEvent }) => {
       const context = resolveGitContext(cwd);
+      if (!isEnabled(context.projectId)) return disabledProject(context.projectId);
       return jsonContent(
         store.ingestEvent({
           ...(eventId === undefined ? {} : { id: eventId }),
@@ -98,6 +119,7 @@ export function createMemoryServer(store: MemoryStore): McpServer {
     },
     ({ kind, summary, agent, cwd, evidence }) => {
       const context = resolveGitContext(cwd);
+      if (!isEnabled(context.projectId)) return disabledProject(context.projectId);
       return jsonContent(
         store.recordMemory({
           kind,
@@ -137,7 +159,12 @@ export function createMemoryServer(store: MemoryStore): McpServer {
       }),
     },
     async ({ query, cwd, branch, limit }) => {
-      const contexts = resolveGitContexts(cwd);
+      const workspaceContexts = resolveGitContexts(cwd);
+      const primary = workspaceContexts[0];
+      if (primary === undefined || !isEnabled(primary.projectId)) {
+        return disabledProject(primary?.projectId ?? "unknown");
+      }
+      const contexts = workspaceContexts.filter((context) => isEnabled(context.projectId));
       const resultLimit = limit ?? 20;
       const provider = embeddingProviderFromEnvironment();
       const results: MemorySearchResult[] = [];
@@ -170,9 +197,13 @@ export function createMemoryServer(store: MemoryStore): McpServer {
     "memory.get",
     {
       description: "ID로 장기 기억과 근거 이벤트 ID를 조회합니다.",
-      inputSchema: z.object({ id: z.string().uuid() }),
+      inputSchema: z.object({ id: z.string().uuid(), cwd: z.string().optional() }),
     },
-    ({ id }) => jsonContent(store.getMemory(id)),
+    ({ id, cwd }) => {
+      const context = resolveGitContext(cwd);
+      if (!isEnabled(context.projectId)) return disabledProject(context.projectId);
+      return jsonContent(store.getMemory(id));
+    },
   );
 
   server.registerTool(
@@ -189,10 +220,13 @@ export function createMemoryServer(store: MemoryStore): McpServer {
           .optional(),
         confidence: z.number().min(0).max(1).optional(),
         agent: z.string().min(1).default("mcp"),
+        cwd: z.string().optional(),
       }),
     },
-    ({ id, summary, kind, status, validity, confidence, agent }) =>
-      jsonContent(
+    ({ id, summary, kind, status, validity, confidence, agent, cwd }) => {
+      const context = resolveGitContext(cwd);
+      if (!isEnabled(context.projectId)) return disabledProject(context.projectId);
+      return jsonContent(
         store.updateMemory(
           id,
           {
@@ -204,7 +238,8 @@ export function createMemoryServer(store: MemoryStore): McpServer {
           },
           agent,
         ),
-      ),
+      );
+    },
   );
 
   server.registerTool(
@@ -215,6 +250,7 @@ export function createMemoryServer(store: MemoryStore): McpServer {
     },
     ({ cwd }) => {
       const context = resolveGitContext(cwd);
+      if (!isEnabled(context.projectId)) return disabledProject(context.projectId);
       return jsonContent(
         store.revalidateProject(
           context.projectId,
@@ -232,7 +268,11 @@ export function createMemoryServer(store: MemoryStore): McpServer {
       description: "검증된 변경, 테스트 근거와 미완료 작업을 에이전트 핸드오프로 생성합니다.",
       inputSchema: z.object({ cwd: z.string().optional() }),
     },
-    ({ cwd }) => jsonContent({ handoff: buildVerifiedHandoff(store, resolveGitContext(cwd)) }),
+    ({ cwd }) => {
+      const context = resolveGitContext(cwd);
+      if (!isEnabled(context.projectId)) return disabledProject(context.projectId);
+      return jsonContent({ handoff: buildVerifiedHandoff(store, context) });
+    },
   );
 
   server.registerResource(
@@ -244,7 +284,25 @@ export function createMemoryServer(store: MemoryStore): McpServer {
       mimeType: "application/json",
     },
     async (uri) => {
-      const contexts = resolveGitContexts();
+      const workspaceContexts = resolveGitContexts();
+      const primary = workspaceContexts[0];
+      if (primary === undefined || !isEnabled(primary.projectId)) {
+        return {
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: "application/json",
+              text: JSON.stringify({
+                enabled: false,
+                projectId: primary?.projectId ?? null,
+                message:
+                  "이 프로젝트에서 agents-memory 사용이 꺼져 있습니다. 사용자가 agents-memory project use를 실행해야 합니다.",
+              }),
+            },
+          ],
+        };
+      }
+      const contexts = workspaceContexts.filter((context) => isEnabled(context.projectId));
       for (const context of contexts) {
         store.revalidateProject(
           context.projectId,

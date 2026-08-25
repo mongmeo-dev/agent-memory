@@ -2,7 +2,15 @@
 
 import { fileURLToPath } from "node:url";
 
-import { setConfiguredDatabasePath } from "./config.js";
+import {
+  autoUseStatus,
+  configuredAutoUse,
+  configuredEmbedding,
+  setConfiguredAutoUse,
+  setConfiguredDatabasePath,
+  setConfiguredEmbedding,
+  setConfiguredProjectAutoUse,
+} from "./config.js";
 import { SystemCredentialStore } from "./credentials.js";
 import { readDaemonToken } from "./daemon-auth.js";
 import {
@@ -57,6 +65,7 @@ function parseArguments(args: string[]): ParsedArguments {
 function usage(): string {
   return `사용법:
   agents-memory context [--cwd PATH]
+  agents-memory project [status|use|ignore|default] [--cwd PATH]
   agents-memory setup [all|claude|codex|gjc] [--scope user|project]
                       [--database PATH] [--dry-run]
   agents-memory serve [--port N] [--token TOKEN]
@@ -70,9 +79,11 @@ function usage(): string {
   agents-memory update MEMORY_ID [--summary TEXT] [--kind KIND] [--status STATUS]
   agents-memory delete MEMORY_ID
   agents-memory settings [show|pause|resume]
+  agents-memory settings auto-use [show|on|off]
   agents-memory stats
   agents-memory export
-  agents-memory embeddings [index|search QUERY...] --endpoint URL --model MODEL
+  agents-memory embeddings [show|configure|disable|index|search QUERY...]
+                           [--endpoint URL] [--model MODEL]
   agents-memory sync [status|configure|run|disable]
                      [--url URL] [--remote-project ID] [--token TOKEN]
 
@@ -103,6 +114,37 @@ async function run(): Promise<void> {
 
   if (command === "context") {
     output({ ...context, repositories: contexts });
+    return;
+  }
+
+  if (command === "project") {
+    const action = positional[0] ?? "status";
+    if (positional.length > 1) throw new Error("project 동작은 하나만 지정할 수 있습니다.");
+    if (action === "use") setConfiguredProjectAutoUse(context.projectId, true);
+    else if (action === "ignore") setConfiguredProjectAutoUse(context.projectId, false);
+    else if (action === "default") setConfiguredProjectAutoUse(context.projectId, null);
+    else if (action !== "status") {
+      throw new Error("project 동작은 status, use, ignore, default 중 하나여야 합니다.");
+    }
+    output({
+      projectId: context.projectId,
+      repositoryRoot: context.repositoryRoot,
+      ...autoUseStatus(context.projectId),
+    });
+    return;
+  }
+
+  if (command === "settings" && positional[0] === "auto-use") {
+    const action = positional[1] ?? "show";
+    if (positional.length > 2) {
+      throw new Error("settings auto-use 동작은 하나만 지정할 수 있습니다.");
+    }
+    if (action === "on") setConfiguredAutoUse(true);
+    else if (action === "off") setConfiguredAutoUse(false);
+    else if (action !== "show") {
+      throw new Error("settings auto-use 동작은 show, on, off 중 하나여야 합니다.");
+    }
+    output({ autoUse: configuredAutoUse() });
     return;
   }
 
@@ -357,10 +399,46 @@ async function run(): Promise<void> {
 
     if (command === "embeddings") {
       const [action = "index", ...queryParts] = positional;
-      const endpoint = flags.get("endpoint") ?? process.env.AGENTS_MEMORY_EMBEDDING_ENDPOINT;
-      const model = flags.get("model") ?? process.env.AGENTS_MEMORY_EMBEDDING_MODEL;
+      const saved = configuredEmbedding();
+      if (action === "show") {
+        output({
+          saved,
+          effective:
+            (process.env.AGENTS_MEMORY_EMBEDDING_ENDPOINT ?? saved?.endpoint) === undefined ||
+            (process.env.AGENTS_MEMORY_EMBEDDING_MODEL ?? saved?.model) === undefined
+              ? null
+              : {
+                  endpoint: process.env.AGENTS_MEMORY_EMBEDDING_ENDPOINT ?? saved?.endpoint,
+                  model: process.env.AGENTS_MEMORY_EMBEDDING_MODEL ?? saved?.model,
+                  source:
+                    process.env.AGENTS_MEMORY_EMBEDDING_ENDPOINT !== undefined ||
+                    process.env.AGENTS_MEMORY_EMBEDDING_MODEL !== undefined
+                      ? "environment"
+                      : "configuration",
+                },
+        });
+        return;
+      }
+      if (action === "configure") {
+        const endpoint = flags.get("endpoint");
+        const model = flags.get("model");
+        if (endpoint === undefined || model === undefined) {
+          throw new Error("embeddings configure에는 --endpoint와 --model이 필요합니다.");
+        }
+        setConfiguredEmbedding({ endpoint, model });
+        output(configuredEmbedding());
+        return;
+      }
+      if (action === "disable") {
+        setConfiguredEmbedding(null);
+        output({ configured: false });
+        return;
+      }
+      const endpoint =
+        flags.get("endpoint") ?? process.env.AGENTS_MEMORY_EMBEDDING_ENDPOINT ?? saved?.endpoint;
+      const model = flags.get("model") ?? process.env.AGENTS_MEMORY_EMBEDDING_MODEL ?? saved?.model;
       if (endpoint === undefined || model === undefined) {
-        throw new Error("--endpoint와 --model 또는 대응하는 embedding 환경 변수가 필요합니다.");
+        throw new Error("--endpoint/--model, embedding 환경 변수 또는 저장된 설정이 필요합니다.");
       }
       const provider = new OpenAICompatibleEmbeddingProvider({
         endpoint,
@@ -386,7 +464,11 @@ async function run(): Promise<void> {
             provider,
           ),
         );
-      } else throw new Error("embeddings 동작은 index 또는 search여야 합니다.");
+      } else {
+        throw new Error(
+          "embeddings 동작은 show, configure, disable, index 또는 search여야 합니다.",
+        );
+      }
       return;
     }
 

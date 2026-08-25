@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { buildWorkspaceActiveContext, type ContextOptions } from "./context.js";
+import { autoUseStatus } from "./config.js";
+import {
+  buildAgentMemoryPrompt,
+  buildWorkspaceActiveContext,
+  type ContextOptions,
+} from "./context.js";
 import { resolveGitContext, resolveGitContexts } from "./git-context.js";
 import { projectLifecycleEvent } from "./projector.js";
 import { isExcludedPath } from "./redaction.js";
@@ -24,6 +29,7 @@ export interface NormalizedEventV1 {
 export interface AdapterDependencies {
   store?: MemoryStore;
   resolveGitContext?: (cwd?: string) => GitContext;
+  automaticUse?: (context: GitContext) => boolean;
   projectLifecycleEvent?: (
     store: MemoryStore,
     event: ReturnType<MemoryStore["ingestEvent"]>,
@@ -242,6 +248,10 @@ export function ingestAdapterPayload(
   const ownsStore = dependencies.store === undefined;
   try {
     git = resolveContext(normalized.cwd);
+    const automaticUse =
+      dependencies.automaticUse ??
+      ((context: GitContext) => autoUseStatus(context.projectId).enabled);
+    if (!automaticUse(git)) return "";
     store = dependencies.store ?? new MemoryStore();
     const settings = store.getCollectionSettings();
     customPatterns = settings.redactionPatterns;
@@ -268,12 +278,14 @@ export function ingestAdapterPayload(
     }
     const context =
       normalized.type === "session.started" || normalized.type === "prompt.submitted"
-        ? buildWorkspaceActiveContext(
-            store,
-            dependencies.resolveGitContext === undefined
-              ? resolveGitContexts(normalized.cwd)
-              : [git],
-            dependencies.contextOptions,
+        ? buildAgentMemoryPrompt(
+            buildWorkspaceActiveContext(
+              store,
+              dependencies.resolveGitContext === undefined
+                ? resolveGitContexts(normalized.cwd).filter(automaticUse)
+                : [git],
+              dependencies.contextOptions,
+            ),
           )
         : "";
     return context;

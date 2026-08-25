@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { parseAdapterArguments, runAdapterHook } from "../src/adapter-cli.js";
 import { ingestAdapterPayload, normalizeAdapterEvent } from "../src/adapters.js";
-import { buildActiveContext } from "../src/context.js";
+import {
+  AGENT_MEMORY_INSTRUCTIONS,
+  buildActiveContext,
+  buildAgentMemoryPrompt,
+} from "../src/context.js";
 import { MemoryStore } from "../src/store.js";
 import type { GitContext } from "../src/types.js";
 
@@ -13,7 +17,7 @@ const git: GitContext = {
 };
 
 function dependencies(store: MemoryStore) {
-  return { store, resolveGitContext: () => git };
+  return { store, resolveGitContext: () => git, automaticUse: () => true };
 }
 
 async function* input(value: string): AsyncGenerator<string> {
@@ -139,6 +143,38 @@ describe("hook adapters", () => {
     }
   });
 
+  it("기억이 없어도 agent의 자동 메모리 운용 지침을 주입한다", () => {
+    const prompt = buildAgentMemoryPrompt("");
+
+    expect(prompt).toBe(AGENT_MEMORY_INSTRUCTIONS);
+    expect(prompt).toContain("memory://context/current");
+    expect(prompt).toContain("memory.record");
+    expect(prompt).toContain("memory.feedback");
+    expect(prompt).toContain("memory.revalidate");
+    expect(prompt).toContain("memory.handoff");
+    expect(prompt).toContain("Do not record chain-of-thought");
+  });
+
+  it("빈 저장소에서도 Claude와 Codex hook에 운용 지침을 반환한다", async () => {
+    for (const client of ["claude", "codex"] as const) {
+      const store = new MemoryStore(":memory:");
+      try {
+        const output = await runAdapterHook(
+          client,
+          input(JSON.stringify({ hook_event_name: "SessionStart" })),
+          dependencies(store),
+        );
+        const parsed = JSON.parse(output) as {
+          hookSpecificOutput: { additionalContext: string };
+        };
+        expect(parsed.hookSpecificOutput.additionalContext).toContain("<agents-memory-policy>");
+        expect(parsed.hookSpecificOutput.additionalContext).toContain("memory.record");
+      } finally {
+        store.close();
+      }
+    }
+  });
+
   it("keeps malformed input and paused collection non-blocking", async () => {
     const store = new MemoryStore(":memory:");
     try {
@@ -147,6 +183,22 @@ describe("hook adapters", () => {
       expect(
         ingestAdapterPayload("claude", { hook_event_name: "SessionStart" }, dependencies(store)),
       ).toBe("");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("자동 사용이 꺼진 프로젝트는 저장하거나 context를 주입하지 않는다", () => {
+    const store = new MemoryStore(":memory:");
+    try {
+      const context = ingestAdapterPayload(
+        "claude",
+        { hook_event_name: "SessionStart", cwd: git.repositoryRoot },
+        { store, resolveGitContext: () => git, automaticUse: () => false },
+      );
+
+      expect(context).toBe("");
+      expect(store.listEvents({ projectId: git.projectId })).toHaveLength(0);
     } finally {
       store.close();
     }

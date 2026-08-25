@@ -14,10 +14,12 @@ describe("MCP server", () => {
   let store: MemoryStore;
   let client: Client;
   let server: ReturnType<typeof createMemoryServer>;
+  let automaticUse: boolean;
 
   beforeEach(async () => {
+    automaticUse = true;
     store = new MemoryStore(":memory:");
-    server = createMemoryServer(store);
+    server = createMemoryServer(store, { automaticUse: () => automaticUse });
     client = new Client({ name: "test-client", version: "1.0.0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
@@ -72,5 +74,28 @@ describe("MCP server", () => {
     if (content === undefined || !("text" in content))
       throw new Error("텍스트 resource가 필요합니다.");
     expect(content.text).toContain(memory.id);
+  });
+
+  it("자동 사용이 꺼진 프로젝트에서는 MCP 기록과 resource 조회를 차단한다", async () => {
+    automaticUse = false;
+
+    const recorded = await client.callTool({
+      name: "memory.record",
+      arguments: {
+        kind: "decision",
+        summary: "저장되면 안 되는 기억",
+        agent: "test-client",
+        cwd: process.cwd(),
+      },
+    });
+    expect(JSON.parse(textFrom(recorded))).toMatchObject({ enabled: false });
+    expect(store.listMemories()).toHaveLength(0);
+
+    const resource = await client.readResource({ uri: "memory://context/current" });
+    const content = resource.contents[0];
+    if (content === undefined || !("text" in content)) {
+      throw new Error("텍스트 resource가 필요합니다.");
+    }
+    expect(JSON.parse(content.text)).toMatchObject({ enabled: false });
   });
 });

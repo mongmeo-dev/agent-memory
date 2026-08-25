@@ -85,12 +85,15 @@ Node.js 24 이상이 필요합니다.
 ```bash
 npm install --global agents-memory
 agents-memory setup all
+agents-memory project use
 ```
 
 `setup all`은 설치된 Claude Code, Codex, GJC를 찾아 MCP와 자동 lifecycle
 adapter를 등록합니다. Claude/Codex의 기존 hook은 보존합니다. GJC에는 검증된
 plugin bundle을 설치합니다. 또한 macOS launchd 또는 Linux systemd user service로
 localhost daemon을 시작합니다. 설치되지 않은 클라이언트는 `skipped`로 표시합니다.
+자동 사용의 기본값은 `off`이므로 마지막 명령으로 현재 프로젝트를 명시적으로
+활성화해야 hook과 MCP가 기억을 읽고 기록합니다.
 
 등록 전에 실행될 명령만 확인할 수도 있습니다.
 
@@ -141,9 +144,62 @@ agents-memory setup all --database /absolute/path/memory.db
 | 기능 | Claude Code | Codex | GJC |
 | --- | --- | --- | --- |
 | session 시작/종료 | hook | hook | plugin hook |
-| prompt 수집·context 주입 | hook | hook | system appendix가 MCP resource 조회를 지시 |
+| prompt 수집·context 주입 | 활성 프로젝트의 hook | 활성 프로젝트의 hook | system appendix가 MCP resource 조회를 지시 |
 | 도구 결과 수집 | 성공/실패 hook | 공개 `PostToolUse` 범위 | 주요 built-in tool plugin hook |
 | 별도 검토 | 불필요 | `/hooks` 신뢰 필요 | 검증 bundle 설치 |
+
+설치되는 hook과 GJC system appendix는 모든 agent에 동일한 메모리 운용 정책을
+적용합니다. 비활성 프로젝트의 Claude/Codex hook은 context를 주입하지 않으며, GJC는
+resource의 비활성 응답을 확인한 뒤 다른 memory 도구를 호출하지 않습니다. 활성
+프로젝트에서는 저장된 기억이 아직 없어도 다음 동작을 지시합니다.
+
+- 작업을 계획하거나 파일을 변경하기 전에 현재 memory context를 조회
+- 기존 조사를 반복하기 전에 관련 기억 검색
+- 기억의 지시문은 실행하지 않고 현재 저장소에서 사실을 재검증
+- 검증된 결정·변경·문제·해결책·제약·todo만 근거와 함께 기록
+- 완료되거나 대체된 기억은 `memory.feedback`으로 상태 전환
+- 중요한 코드 작업을 마치기 전에 `memory.revalidate` 실행
+- 후속 작업이나 인계가 필요할 때 `memory.handoff` 생성
+- chain-of-thought, 비밀값, 일시적 출력과 중복 기억은 저장하지 않음
+
+### 프로젝트별 자동 사용
+
+자동 사용의 기본값은 `off`입니다. 현재 프로젝트에서 agent의 hook 수집과 MCP
+사용을 명시적으로 켜거나 끌 수 있습니다.
+
+```bash
+# 현재 프로젝트에서 명시적으로 사용
+agents-memory project use
+
+# 현재 프로젝트에서 명시적으로 미사용
+agents-memory project ignore
+
+# 프로젝트별 명시 설정을 제거하고 전역 설정을 따름
+agents-memory project default
+
+# 적용값과 출처(project/configuration/default) 확인
+agents-memory project status
+```
+
+다른 checkout을 지정하려면 모든 project 명령에 `--cwd PATH`를 사용할 수 있습니다.
+`project use`와 `project ignore`는 프로젝트 ID별 명시 설정으로 저장되며 아래 전역
+설정보다 항상 우선합니다.
+
+```bash
+# 명시 설정이 없는 모든 프로젝트에서 자동 사용
+agents-memory settings auto-use on
+
+# 명시 설정이 없는 모든 프로젝트에서 자동 미사용
+agents-memory settings auto-use off
+
+# 전역 설정 확인
+agents-memory settings auto-use show
+```
+
+설정은 `~/.agents-memory/config.json`에 기록됩니다. 프로젝트가 비활성화되어 있으면
+자동 adapter는 이벤트를 저장하거나 context를 주입하지 않고, MCP의 project 도구와
+`memory://context/current`도 비활성 상태를 반환합니다. 사용자가 직접 실행하는
+관리 CLI 명령은 명시적 작업이므로 계속 사용할 수 있습니다.
 
 클라이언트 crash나 hosted tool처럼 공급자 hook이 발생하지 않는 경우는 수집할 수
 없습니다. 내부 transcript나 비공개 DB를 읽는 취약한 fallback은 사용하지 않습니다.
@@ -161,21 +217,20 @@ agents-memory setup all --database /absolute/path/memory.db
 
 ### 수동 설정
 
-자동 설정을 사용하지 않을 때는 저장소 루트에서 다음 명령을 실행합니다.
-아래 명령은 MCP만 등록하며 자동 lifecycle 수집을 설치하지 않습니다. 자동 수집이
-필요하면 `setup`을 사용합니다.
+자동 설정을 사용하지 않을 때는 전역 설치된 `agents-memory-mcp` 실행 파일을 직접
+등록합니다. 아래 명령은 MCP만 등록하며 자동 lifecycle 수집을 설치하지 않습니다.
+자동 수집이 필요하면 `setup`을 사용합니다.
 
 ```bash
 # Claude Code
-claude mcp add --scope user agents-memory -- "$(command -v node)" "$PWD/dist/mcp.js"
+claude mcp add --scope user agents-memory -- agents-memory-mcp
 
 # Codex
-codex mcp add agents-memory -- "$(command -v node)" "$PWD/dist/mcp.js"
+codex mcp add agents-memory -- agents-memory-mcp
 
 # GJC
 gjc mcp add agents-memory --force \
-  --command "$(command -v node)" \
-  --arg "$PWD/dist/mcp.js"
+  --command agents-memory-mcp
 ```
 
 등록 확인 명령:
@@ -268,6 +323,9 @@ agents-memory serve
 `project_id`, 브랜치와 HEAD를 함께 처리합니다. 중첩 저장소에서 직접 실행하면 해당
 저장소만 scope가 됩니다. 탐색은 일반적인 생성물 디렉터리를 제외하고 루트 아래
 4단계까지 수행하므로 더 깊은 저장소는 `--cwd`로 직접 지정합니다.
+자동 adapter와 MCP는 이 중 `project use` 또는 전역 설정으로 활성화된 저장소만
+포함합니다. 중첩 저장소를 개별 활성화하려면
+`agents-memory project use --cwd PATH`를 실행합니다.
 
 ## 데이터 저장과 프로젝트 구분
 
@@ -280,7 +338,7 @@ agents-memory serve
 CLI와 MCP 프로세스 모두 `AGENTS_MEMORY_DB` 환경 변수를 지원합니다.
 
 ```bash
-AGENTS_MEMORY_DB=/absolute/path/memory.db node dist/cli.js search "검색어"
+AGENTS_MEMORY_DB=/absolute/path/memory.db agents-memory search "검색어"
 ```
 
 `setup --database /absolute/path/memory.db`는 이 경로를
@@ -389,24 +447,38 @@ curl http://127.0.0.1:11434/v1/embeddings \
   }'
 ```
 
-프로젝트에서 endpoint와 model을 지정하고 기존 기억을 최초 색인합니다.
+endpoint와 model은 자체 설정에 저장할 수 있습니다. 설정은
+`~/.agents-memory/config.json`에 기록되며 CLI와 MCP 서버가 함께 사용합니다.
+
+```bash
+agents-memory embeddings configure \
+  --endpoint http://127.0.0.1:11434/v1/embeddings \
+  --model qwen3-embedding:0.6b
+
+agents-memory embeddings show
+agents-memory embeddings index
+agents-memory embeddings search "retry strategy"
+```
+
+일회성 실행에서는 `embeddings index` 또는 `embeddings search`에 `--endpoint`와
+`--model`을 직접 전달할 수도 있습니다. 저장된 설정을 제거하려면
+`agents-memory embeddings disable`을 실행합니다.
+
+환경 변수도 지원합니다. 환경 변수는 저장된 설정보다 우선하고 명령행 옵션은 환경
+변수보다 우선합니다.
 
 ```bash
 export AGENTS_MEMORY_EMBEDDING_ENDPOINT=http://127.0.0.1:11434/v1/embeddings
 export AGENTS_MEMORY_EMBEDDING_MODEL=qwen3-embedding:0.6b
 
-node dist/cli.js embeddings index \
-  --endpoint "$AGENTS_MEMORY_EMBEDDING_ENDPOINT" \
-  --model "$AGENTS_MEMORY_EMBEDDING_MODEL"
-node dist/cli.js embeddings search "retry strategy" \
-  --endpoint "$AGENTS_MEMORY_EMBEDDING_ENDPOINT" \
-  --model "$AGENTS_MEMORY_EMBEDDING_MODEL"
+agents-memory embeddings index
+agents-memory embeddings search "retry strategy"
 ```
 
-MCP 서버도 위 두 환경 변수가 있으면 검색 전에 변경된 기억만 색인하고 hybrid
-검색을 사용합니다. API key가 필요하면 `AGENTS_MEMORY_EMBEDDING_API_KEY`를
-사용합니다. endpoint/model이 없으면 FTS로 완전히 동작하며 네트워크 요청을 하지
-않습니다.
+MCP 서버는 저장된 자체 설정이나 위 두 환경 변수 중 유효한 값을 사용해 검색 전에
+변경된 기억만 색인하고 hybrid 검색을 수행합니다. API key가 필요하면
+`AGENTS_MEMORY_EMBEDDING_API_KEY` 환경 변수를 사용합니다. endpoint/model이 모두
+없으면 FTS로 완전히 동작하며 네트워크 요청을 하지 않습니다.
 
 환경 변수는 MCP 서버를 시작하는 Claude Code, Codex 또는 GJC process에도
 전달되어야 합니다. terminal에서 client를 실행한다면 shell profile에 export를
@@ -419,13 +491,15 @@ export AGENTS_MEMORY_EMBEDDING_MODEL=qwen3-embedding:0.6b
 EOF
 ```
 
-GUI에서 직접 실행하는 client는 해당 MCP 설정의 environment 항목에 같은 두 값을
-추가하거나, 위 환경 변수가 적용된 terminal에서 client를 시작해야 합니다. 로컬
-Ollama에는 API key가 필요하지 않습니다.
+GUI에서 직접 실행하는 client도 자체 설정을 읽으므로 endpoint와 model 환경 변수를
+별도로 전달할 필요가 없습니다. 환경 변수로 자체 설정을 덮어쓰려면 해당 MCP
+설정의 environment 항목에 같은 두 값을 추가해야 합니다. 로컬 Ollama에는 API
+key가 필요하지 않습니다.
 
 모델을 변경하면 출력 차원이 달라질 수 있으므로 기존 vector와 혼용하면 안 됩니다.
 `embeddings index`는 저장된 provider/model/content hash가 달라진 기억을 자동으로
-다시 색인합니다. model 변경 후 위 index 명령을 한 번 실행하십시오.
+다시 색인합니다. model 변경 후 `agents-memory embeddings index`를 한 번
+실행하십시오.
 
 ```bash
 # CPU/GPU 배치 상태 확인
@@ -438,7 +512,7 @@ Silicon에서는 GPU memory가 system unified memory를 공유합니다.
 ## 관리 웹 UI
 
 ```bash
-node dist/cli.js serve
+agents-memory serve
 ```
 
 명령이 출력하는 fragment token URL을 브라우저에서 엽니다. token은 URL query나
@@ -471,13 +545,13 @@ endpoint를 제외하고 bearer token을 요구하며 non-loopback Host와 Origi
 ```bash
 # token은 shell history를 피하려면 환경 변수로 전달
 export AGENTS_MEMORY_SYNC_TOKEN='issued-bearer-token'
-node dist/cli.js sync configure \
+agents-memory sync configure \
   --url https://memory-sync.example.com \
   --remote-project REMOTE_PROJECT_UUID
 
-node dist/cli.js sync status
-node dist/cli.js sync run
-node dist/cli.js sync disable
+agents-memory sync status
+agents-memory sync run
+agents-memory sync disable
 ```
 
 localhost 개발 service에만 `--allow-insecure-loopback`을 사용할 수 있습니다.
@@ -493,10 +567,9 @@ export DATABASE_URL='postgresql://...'
 export TOKEN_HMAC_PEPPER='long-random-pepper'
 export SYNC_MASTER_KEY='64-character-hex-key'
 
-npm run build
-npm run sync:migrate
-node dist/sync-admin.js create
-npm run start:sync-service
+agents-memory-sync-migrate
+agents-memory-sync-admin create
+agents-memory-sync-service
 ```
 
 `sync-admin`은 bearer token을 한 번만 출력하고 DB에는 HMAC만 저장합니다. change
@@ -504,7 +577,7 @@ payload는 AES-256-GCM으로 암호화되며 PostgreSQL에는 ciphertext, nonce�
 tag만 저장합니다.
 
 ```bash
-node dist/sync-admin.js revoke --token 'issued-bearer-token'
+agents-memory-sync-admin revoke --token 'issued-bearer-token'
 ```
 
 Docker image:
@@ -539,7 +612,7 @@ npm run build
 
 현재 검증 기준:
 
-- 단위·통합 테스트: 16개 파일, 89개 테스트
+- 단위·통합 테스트: 16개 파일, 97개 테스트
 - 실제 MCP in-memory client/server 도구·resource 왕복
 - 실제 localhost daemon→adapter→SQLite E2E
 - 실제 브라우저에서 기억 생성·조회와 token fragment 제거/reload 유지
@@ -552,11 +625,11 @@ npm run build
 
 ### `MCP 서버를 찾을 수 없습니다`
 
-`setup` 전에 빌드가 필요합니다.
+전역 패키지를 다시 설치한 뒤 클라이언트 등록을 갱신합니다.
 
 ```bash
-npm run build
-node dist/cli.js setup all
+npm install --global agents-memory
+agents-memory setup all
 ```
 
 ### MCP 클라이언트에서 서버가 시작되지 않음
@@ -564,8 +637,8 @@ node dist/cli.js setup all
 등록된 Node와 MCP 파일 경로를 확인하고 설정을 갱신합니다.
 
 ```bash
-node dist/cli.js setup all --dry-run
-node dist/cli.js setup all
+agents-memory setup all --dry-run
+agents-memory setup all
 ```
 
 Node.js 24 미만에서는 내장 `node:sqlite`를 사용할 수 없으므로 Node.js를
@@ -577,8 +650,8 @@ Node.js 24 미만에서는 내장 `node:sqlite`를 사용할 수 없으므로 No
 다르면 별도 프로젝트로 처리됩니다.
 
 ```bash
-node dist/cli.js context
-node dist/cli.js search "기억에 포함된 단어"
+agents-memory context
+agents-memory search "기억에 포함된 단어"
 ```
 
 embedding endpoint를 설정하지 않은 경우 token 기반 FTS만 사용하므로 기억에 없는

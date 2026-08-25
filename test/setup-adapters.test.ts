@@ -70,5 +70,7 @@ describe("installLifecycleAdapter", () => {
     expect(readFileSync(codex.artifacts[0] ?? "", "utf8")).toContain("UserPromptSubmit");
     expect(readFileSync(gjc.artifacts[0] ?? "", "utf8")).toContain("session_start");
     expect(readFileSync(gjc.artifacts[4] ?? "", "utf8")).toContain("memory://context/current");
+    expect(readFileSync(gjc.artifacts[4] ?? "", "utf8")).toContain("memory.revalidate");
+    expect(readFileSync(gjc.artifacts[4] ?? "", "utf8")).toContain("memory.handoff");
   });
 });
