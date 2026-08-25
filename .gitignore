@@ -1,0 +1,14 @@
+.idea/
+*.iml
+
+.DS_Store
+
+.gjc/
+!.gjc/skills/
+.orca/
+AGENTS.local.md
+
+docs/memo/
+
+
+.env
