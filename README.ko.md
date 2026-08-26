@@ -104,8 +104,14 @@ agents-memory setup all --dry-run
 ```
 
 설정 명령은 전역 NPM 패키지의 현재 Node 실행 파일과 MCP 진입점 절대 경로를
-저장합니다. 패키지를 갱신한 뒤에는 `agents-memory setup all`을 다시 실행합니다.
+저장합니다. `agents-memory update`를 실행하면 NPM registry를 온라인으로 조회하고,
+전역 `agents-memory@latest`를 설치한 뒤 설치 버전을 검증하고 새 패키지에서 client와
+daemon 설정을 다시 실행합니다.
 소스 checkout에서 개발할 때만 `npm install && npm run build`가 필요합니다.
+
+```bash
+agents-memory update
+```
 
 daemon은 SQLite writer, adapter ingest, 관리 API와 background 상태를 소유합니다.
 hook은 daemon에 150ms 제한으로 먼저 전달하고 daemon이 중지됐으면 redacted local
@@ -306,12 +312,15 @@ agents-memory get 00000000-0000-0000-0000-000000000000
 
 # 관리
 agents-memory list --status active
-agents-memory update MEMORY_ID --status resolved
+agents-memory edit MEMORY_ID --status resolved
 agents-memory delete MEMORY_ID
 agents-memory settings pause
 agents-memory settings resume
 agents-memory stats
 agents-memory export
+
+# 전역 패키지를 갱신하고 모든 연동 새로고침
+agents-memory update
 
 # 관리 웹 UI
 agents-memory serve
@@ -640,11 +649,10 @@ GitHub 시험판 릴리스에는 npm `next` dist-tag를, 안정 릴리스에는 
 
 ### `MCP 서버를 찾을 수 없습니다`
 
-전역 패키지를 다시 설치한 뒤 클라이언트 등록을 갱신합니다.
+전역 패키지를 갱신하고 클라이언트 등록을 새로고침합니다.
 
 ```bash
-npm install --global agents-memory
-agents-memory setup all
+agents-memory update
 ```
 
 ### MCP 클라이언트에서 서버가 시작되지 않음

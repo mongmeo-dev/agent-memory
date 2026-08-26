@@ -76,7 +76,11 @@ You can also inspect only the commands that would run before registration.
 agents-memory setup all --dry-run
 ```
 
-The setup command stores the global NPM package's current Node executable and the MCP entry point's absolute path. Run `agents-memory setup all` again after updating the package. `npm install && npm run build` is needed only when developing from a source checkout.
+The setup command stores the global NPM package's current Node executable and the MCP entry point's absolute path. Run `agents-memory update` to query the NPM registry online, install `agents-memory@latest` globally, verify the installed version, and re-run client and daemon setup from the new package. `npm install && npm run build` is needed only when developing from a source checkout.
+
+```bash
+agents-memory update
+```
 
 The daemon owns the SQLite writer, adapter ingestion, management API, and background state. Hooks first deliver to the daemon with a 150ms limit; if the daemon is stopped, they continue without blocking work through the redacted local spool/direct SQLite path. The daemon token is stored in `~/.agents-memory/daemon-token` with mode `0600`.
 
@@ -257,12 +261,15 @@ agents-memory get 00000000-0000-0000-0000-000000000000
 
 # Management
 agents-memory list --status active
-agents-memory update MEMORY_ID --status resolved
+agents-memory edit MEMORY_ID --status resolved
 agents-memory delete MEMORY_ID
 agents-memory settings pause
 agents-memory settings resume
 agents-memory stats
 agents-memory export
+
+# Update the global package and refresh all integrations
+agents-memory update
 
 # Management web UI
 agents-memory serve
@@ -535,11 +542,10 @@ Current verification baseline:
 
 ### `Cannot find MCP server`
 
-Reinstall the global package, then update client registration.
+Update the global package and refresh client registration.
 
 ```bash
-npm install --global agents-memory
-agents-memory setup all
+agents-memory update
 ```
 
 ### Server does not start in an MCP client

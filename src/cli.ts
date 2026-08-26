@@ -20,6 +20,7 @@ import {
 } from "./embeddings.js";
 import { resolveGitContexts } from "./git-context.js";
 import { buildVerifiedHandoff } from "./handoff.js";
+import { installedPackageIdentity, updateGlobalPackage } from "./package-update.js";
 import { CLIENT_NAMES, type ClientName, type SetupScope, setupClients } from "./setup.js";
 import { installDaemonService } from "./setup-daemon.js";
 import { MemoryStore } from "./store.js";
@@ -64,6 +65,7 @@ function parseArguments(args: string[]): ParsedArguments {
 
 function usage(): string {
   return `Usage:
+  agents-memory --version
   agents-memory context [--cwd PATH]
   agents-memory project [status|use|ignore|default] [--cwd PATH]
   agents-memory setup [all|claude|codex|gjc] [--scope user|project]
@@ -76,8 +78,9 @@ function usage(): string {
   agents-memory handoff [--cwd PATH]
   agents-memory get MEMORY_ID
   agents-memory list [--kind KIND] [--status STATUS] [--branch NAME]
-  agents-memory update MEMORY_ID [--summary TEXT] [--kind KIND] [--status STATUS]
+  agents-memory edit MEMORY_ID [--summary TEXT] [--kind KIND] [--status STATUS]
   agents-memory delete MEMORY_ID
+  agents-memory update
   agents-memory settings [show|pause|resume]
   agents-memory settings auto-use [show|on|off]
   agents-memory stats
@@ -102,12 +105,29 @@ function output(value: unknown): void {
 
 async function run(): Promise<void> {
   const [command, ...rawArguments] = process.argv.slice(2);
+  const packageIdentity = installedPackageIdentity();
+  if (command === "--version" || command === "version") {
+    process.stdout.write(`${packageIdentity.version}\n`);
+    return;
+  }
   if (command === undefined || command === "help" || command === "--help") {
     process.stdout.write(`${usage()}\n`);
     return;
   }
 
   const { positional, flags } = parseArguments(rawArguments);
+  if (command === "update") {
+    if (positional.length > 0 || flags.size > 0) {
+      throw new Error("The update command does not accept arguments.");
+    }
+    output(
+      updateGlobalPackage({
+        ...packageIdentity,
+        nodePath: process.execPath,
+      }),
+    );
+    return;
+  }
   const contexts = resolveGitContexts(flags.get("cwd"));
   const context = contexts[0];
   if (context === undefined) throw new Error("Unable to resolve the Git context.");
@@ -348,7 +368,7 @@ async function run(): Promise<void> {
       return;
     }
 
-    if (command === "update") {
+    if (command === "edit") {
       const id = required(positional, "MEMORY_ID is required.");
       const kind = flags.get("kind");
       if (kind !== undefined && !MEMORY_KINDS.includes(kind as MemoryKind)) {

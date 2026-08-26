@@ -99,7 +99,10 @@ WantedBy=default.target
     );
     try {
       execFileSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" });
-      execFileSync("systemctl", ["--user", "enable", "--now", "agents-memory.service"], {
+      execFileSync("systemctl", ["--user", "enable", "agents-memory.service"], {
+        stdio: "ignore",
+      });
+      execFileSync("systemctl", ["--user", "restart", "agents-memory.service"], {
         stdio: "ignore",
       });
     } catch (error) {
